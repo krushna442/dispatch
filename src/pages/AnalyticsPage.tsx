@@ -135,53 +135,61 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Total Scans</span>
-            <ScanLine className="w-4 h-4 text-teal-400" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 sm:p-5 hover:border-slate-700 transition-all">
+          <div className="flex items-center justify-between text-slate-400 mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider truncate">Total Scans</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-teal-500/10 text-teal-400 flex items-center justify-center shrink-0">
+              <ScanLine className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </div>
           </div>
-          <div className="text-3xl font-extrabold text-white">
+          <div className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
             {summary?.total_scans ?? 0}
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-[10px] sm:text-xs text-slate-500 mt-1 line-clamp-1 sm:line-clamp-none">
             Today: <strong className="text-teal-400">{summary?.today_scans ?? 0}</strong> parts
           </p>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Completion Rate</span>
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 sm:p-5 hover:border-slate-700 transition-all">
+          <div className="flex items-center justify-between text-slate-400 mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider truncate">Completion</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </div>
           </div>
-          <div className="text-3xl font-extrabold text-emerald-400">
+          <div className="text-2xl sm:text-3xl font-bold text-emerald-400 tracking-tight">
             {summary?.completion_rate ?? 0}%
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            {summary?.completed_plans ?? 0} of {summary?.total_plans ?? 0} plans finished
+          <p className="text-[10px] sm:text-xs text-slate-500 mt-1 line-clamp-1 sm:line-clamp-none">
+            {summary?.completed_plans ?? 0} of {summary?.total_plans ?? 0} plans
           </p>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Completed Plans</span>
-            <CheckCircle2 className="w-4 h-4 text-blue-400" />
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 sm:p-5 hover:border-slate-700 transition-all">
+          <div className="flex items-center justify-between text-slate-400 mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider truncate">Completed</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </div>
           </div>
-          <div className="text-3xl font-extrabold text-blue-400">
+          <div className="text-2xl sm:text-3xl font-bold text-blue-400 tracking-tight">
             {summary?.completed_plans ?? 0}
           </div>
-          <p className="text-xs text-slate-500 mt-1">Ready or already dispatched</p>
+          <p className="text-[10px] sm:text-xs text-slate-500 mt-1 line-clamp-1 sm:line-clamp-none">Ready / dispatched</p>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Pending Plans</span>
-            <Clock className="w-4 h-4 text-amber-400" />
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 sm:p-5 hover:border-slate-700 transition-all">
+          <div className="flex items-center justify-between text-slate-400 mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider truncate">Pending Plans</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0">
+              <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </div>
           </div>
-          <div className="text-3xl font-extrabold text-amber-400">
+          <div className="text-2xl sm:text-3xl font-bold text-amber-400 tracking-tight">
             {summary?.pending_plans ?? 0}
           </div>
-          <p className="text-xs text-slate-500 mt-1">Requires scanning to complete</p>
+          <p className="text-[10px] sm:text-xs text-slate-500 mt-1 line-clamp-1 sm:line-clamp-none">Requires scanning</p>
         </div>
       </div>
 

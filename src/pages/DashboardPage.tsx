@@ -141,59 +141,59 @@ export default function DashboardPage() {
       </div>
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Total Planned */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-all">
-          <div className="flex items-center justify-between text-slate-400 mb-3">
-            <span className="text-xs font-medium uppercase tracking-wider">Total Plans</span>
-            <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
-              <ClipboardList className="w-4 h-4" />
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 sm:p-5 hover:border-slate-700 transition-all">
+          <div className="flex items-center justify-between text-slate-400 mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider truncate">Total Plans</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0">
+              <ClipboardList className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-white tracking-tight">{summary.total_plans}</div>
-          <p className="text-xs text-slate-500 mt-1">Active scheduled part numbers</p>
+          <div className="text-2xl sm:text-3xl font-bold text-white tracking-tight">{summary.total_plans}</div>
+          <p className="text-[10px] sm:text-xs text-slate-500 mt-1 line-clamp-1 sm:line-clamp-none">Active scheduled part numbers</p>
         </div>
 
         {/* Completed */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-all">
-          <div className="flex items-center justify-between text-slate-400 mb-3">
-            <span className="text-xs font-medium uppercase tracking-wider">Completed</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-              <CheckCircle2 className="w-4 h-4" />
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 sm:p-5 hover:border-slate-700 transition-all">
+          <div className="flex items-center justify-between text-slate-400 mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider truncate">Completed</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-emerald-400 tracking-tight">
+          <div className="text-2xl sm:text-3xl font-bold text-emerald-400 tracking-tight">
             {summary.completed_plans}
           </div>
-          <p className="text-xs text-slate-500 mt-1">Ready for Gate Pass loading</p>
+          <p className="text-[10px] sm:text-xs text-slate-500 mt-1 line-clamp-1 sm:line-clamp-none">Ready for Gate Pass loading</p>
         </div>
 
         {/* Pending */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-all">
-          <div className="flex items-center justify-between text-slate-400 mb-3">
-            <span className="text-xs font-medium uppercase tracking-wider">Pending Balance</span>
-            <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
-              <Clock className="w-4 h-4" />
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 sm:p-5 hover:border-slate-700 transition-all">
+          <div className="flex items-center justify-between text-slate-400 mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider truncate">Pending Balance</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0">
+              <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-amber-400 tracking-tight">
+          <div className="text-2xl sm:text-3xl font-bold text-amber-400 tracking-tight">
             {summary.pending_plans}
           </div>
-          <p className="text-xs text-slate-500 mt-1">Requires scanning to complete</p>
+          <p className="text-[10px] sm:text-xs text-slate-500 mt-1 line-clamp-1 sm:line-clamp-none">Requires scanning to complete</p>
         </div>
 
         {/* Today Scans */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-all">
-          <div className="flex items-center justify-between text-slate-400 mb-3">
-            <span className="text-xs font-medium uppercase tracking-wider">Today's Scans</span>
-            <div className="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-400 flex items-center justify-center">
-              <TrendingUp className="w-4 h-4" />
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 sm:p-5 hover:border-slate-700 transition-all">
+          <div className="flex items-center justify-between text-slate-400 mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider truncate">Today's Scans</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-teal-500/10 text-teal-400 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-teal-400 tracking-tight">
+          <div className="text-2xl sm:text-3xl font-bold text-teal-400 tracking-tight">
             {summary.today_scans}
           </div>
-          <p className="text-xs text-slate-500 mt-1">Verified parts today</p>
+          <p className="text-[10px] sm:text-xs text-slate-500 mt-1 line-clamp-1 sm:line-clamp-none">Verified parts today</p>
         </div>
       </div>
 

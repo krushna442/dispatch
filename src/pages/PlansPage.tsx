@@ -17,6 +17,8 @@ import {
   RefreshCw,
   Plus,
   ChevronUp,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
 
 interface DespatchPlan {
@@ -43,6 +45,7 @@ export default function PlansPage() {
   const [pageSize, setPageSize] = useState<number>(25);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [showAddSection, setShowAddSection] = useState(false);
+  const [mobileView, setMobileView] = useState<'cards' | 'table'>('cards');
 
   // Manual Add Form State
   const [newPartNumber, setNewPartNumber] = useState('');
@@ -317,42 +320,45 @@ export default function PlansPage() {
 
         <div className="p-4 sm:p-5 space-y-4">
           {/* Top Actions Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:gap-3">
               <button
                 type="button"
                 onClick={() => setShowAddSection(!showAddSection)}
-                className="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs sm:text-sm font-semibold shadow-md shadow-teal-600/20 transition-all cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs sm:text-sm font-semibold shadow-md shadow-teal-600/20 transition-all cursor-pointer"
               >
-                {showAddSection ? <ChevronUp className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                {showAddSection ? 'Hide Adding Options' : '+ Add / Import Records'}
+                {showAddSection ? <ChevronUp className="w-4 h-4 shrink-0" /> : <Plus className="w-4 h-4 shrink-0" />}
+                <span className="truncate">{showAddSection ? 'Hide Options' : 'Add / Import Records'}</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleExportScannedData}
-                className="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/40 text-xs sm:text-sm font-semibold transition-all cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/40 text-xs sm:text-sm font-semibold transition-all cursor-pointer"
               >
-                <FileSpreadsheet className="w-4 h-4" />
-                Export Scanned Data
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                <span className="truncate sm:inline hidden">Export Scanned Data</span>
+                <span className="truncate sm:hidden inline">Export Data</span>
               </button>
             </div>
 
             {/* Search By Date Input */}
-            <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs sm:text-sm">
-              <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-              <span className="text-[11px] sm:text-xs text-slate-400 font-medium whitespace-nowrap">Date:</span>
+            <div className="flex items-center justify-between sm:justify-start gap-2 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs sm:text-sm w-full sm:w-auto">
+              <div className="flex items-center gap-2 shrink-0">
+                <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                <span className="text-[11px] sm:text-xs text-slate-400 font-medium whitespace-nowrap">Date:</span>
+              </div>
               <input
                 type="date"
                 value={dateFilter}
                 onChange={(e) => setDateFilter(e.target.value)}
-                className="bg-transparent border-none text-white text-xs sm:text-sm font-medium focus:outline-none cursor-pointer"
+                className="bg-transparent border-none text-white text-xs sm:text-sm font-medium focus:outline-none cursor-pointer flex-1 sm:flex-none text-center sm:text-left min-w-0"
               />
               <button
                 type="button"
                 onClick={fetchPlans}
                 title="Refresh"
-                className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-700 transition-colors"
+                className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-700 transition-colors shrink-0"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               </button>
@@ -361,8 +367,8 @@ export default function PlansPage() {
 
           {/* Collapsible Adding / Importing Section */}
           {showAddSection && (
-            <div className="bg-slate-950/80 p-4 sm:p-5 rounded-2xl border border-teal-500/30 shadow-inner space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+            <div className="bg-slate-950/80 p-3.5 sm:p-5 rounded-2xl border border-teal-500/30 shadow-inner space-y-3.5 sm:space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
                   <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide">
@@ -370,7 +376,7 @@ export default function PlansPage() {
                   </h3>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:gap-2">
                   {/* Hidden Excel Input */}
                   <input
                     type="file"
@@ -382,7 +388,7 @@ export default function PlansPage() {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/20 transition-all cursor-pointer"
                   >
                     <Upload className="w-3.5 h-3.5" />
                     Import Records
@@ -390,7 +396,7 @@ export default function PlansPage() {
                   <button
                     type="button"
                     onClick={handleDownloadDummyExcel}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 text-xs font-semibold transition-all cursor-pointer"
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 text-xs font-semibold transition-all cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
                     Dummy Excel
@@ -461,23 +467,53 @@ export default function PlansPage() {
           )}
 
           {/* Filter & Pagination Controls */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1">
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span>Show</span>
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-white focus:outline-none"
-              >
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-              <span>entries</span>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
+            <div className="flex items-center justify-between sm:justify-start gap-2">
+              <div className="flex items-center gap-1.5 text-xs text-slate-400 bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5">
+                <span>Show</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-transparent text-white font-semibold focus:outline-none cursor-pointer"
+                >
+                  <option value={10} className="bg-slate-800">10</option>
+                  <option value={25} className="bg-slate-800">25</option>
+                  <option value={50} className="bg-slate-800">50</option>
+                  <option value={100} className="bg-slate-800">100</option>
+                </select>
+                <span>entries</span>
+              </div>
+
+              {/* Mobile View Switcher (Cards vs Table) */}
+              <div className="sm:hidden flex items-center bg-slate-800 border border-slate-700 rounded-xl p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setMobileView('cards')}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    mobileView === 'cards'
+                      ? 'bg-teal-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <LayoutGrid className="w-3 h-3" />
+                  Cards
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobileView('table')}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    mobileView === 'table'
+                      ? 'bg-teal-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <List className="w-3 h-3" />
+                  Table
+                </button>
+              </div>
             </div>
 
             <div className="relative w-full sm:w-64">
@@ -490,26 +526,186 @@ export default function PlansPage() {
                   setSearchQuery(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
           </div>
         </div>
 
-        {/* Table Container */}
-        <div className="overflow-x-auto -mx-1 sm:mx-0">
+        {/* Mobile Card List (Active when mobileView === 'cards' on small screens) */}
+        <div className={`sm:hidden ${mobileView === 'cards' ? 'block' : 'hidden'} p-3 space-y-3`}>
+          {/* Highlighted Cyan Total Summary Card */}
+          <div className="bg-cyan-500 text-slate-950 p-3.5 rounded-xl font-bold shadow-md">
+            <div className="flex items-center justify-between text-xs pb-1.5 border-b border-cyan-400 mb-2">
+              <span className="uppercase tracking-wider font-extrabold text-[11px]">Total Summary</span>
+              <span className="text-[11px] font-semibold">{plans.length} Planned Parts</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="bg-cyan-600/25 rounded-lg p-1.5">
+                <div className="text-[10px] uppercase font-semibold text-slate-900/80">Planned</div>
+                <div className="text-base font-extrabold">{totals.totalQty}</div>
+              </div>
+              <div className="bg-cyan-600/25 rounded-lg p-1.5">
+                <div className="text-[10px] uppercase font-semibold text-slate-900/80">Balance</div>
+                <div className="text-base font-extrabold">{totals.totalBal}</div>
+              </div>
+              <div className="bg-cyan-600/25 rounded-lg p-1.5">
+                <div className="text-[10px] uppercase font-semibold text-slate-900/80">Scanned</div>
+                <div className="text-base font-extrabold">{totals.totalScan}</div>
+              </div>
+            </div>
+            <div className="text-center text-xs mt-2 font-extrabold bg-cyan-600/20 rounded-lg py-1">
+              {totals.totalQty > 0
+                ? `${Math.round((totals.totalScan / totals.totalQty) * 100)}% Fulfilled`
+                : '0%'}
+            </div>
+          </div>
+
+          {/* Card Items */}
+          {loading ? (
+            <div className="py-12 text-center text-slate-500">
+              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-teal-400" />
+              Loading records...
+            </div>
+          ) : paginatedPlans.length === 0 ? (
+            <div className="py-12 text-center text-slate-500 text-xs">
+              No records found for the selected date. Import Excel or add records above.
+            </div>
+          ) : (
+            paginatedPlans.map((plan, index) => {
+              const srNo = (currentPage - 1) * pageSize + index + 1;
+              const isCompleted = plan.status === 'completed' || plan.balance_quantity === 0;
+              const percent =
+                plan.quantity > 0
+                  ? Math.min(100, Math.round((plan.scanned_quantity / plan.quantity) * 100))
+                  : 0;
+
+              return (
+                <div
+                  key={plan.id}
+                  className="bg-slate-800/70 border border-slate-700/80 rounded-xl p-3.5 space-y-3 hover:border-slate-600 transition-all shadow-md"
+                >
+                  {/* Card Top: SR No, Part Number, Status & Actions */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-5 h-5 rounded-md bg-slate-700 text-slate-300 text-[10px] font-bold flex items-center justify-center shrink-0">
+                        {srNo}
+                      </span>
+                      <span className="font-mono font-bold text-white text-sm tracking-wide truncate">
+                        {plan.part_number}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          isCompleted
+                            ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
+                            : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                        }`}
+                      >
+                        {isCompleted ? 'Completed' : 'Pending'}
+                      </span>
+
+                      <button
+                        onClick={() => openEdit(plan)}
+                        title="Edit Plan"
+                        className="p-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(plan.id)}
+                        title="Delete Plan"
+                        className="p-1 rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Quantities Row */}
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="bg-slate-900/80 border border-slate-800 rounded-lg p-2">
+                      <div className="text-[10px] text-slate-400 uppercase font-medium">Planned</div>
+                      <div className="font-bold text-white text-sm mt-0.5">{plan.quantity}</div>
+                    </div>
+
+                    <div
+                      className={`rounded-lg p-2 border ${
+                        isCompleted
+                          ? 'bg-emerald-600/15 border-emerald-500/30 text-emerald-400'
+                          : 'bg-amber-500/15 border-amber-500/30 text-amber-400'
+                      }`}
+                    >
+                      <div className="text-[10px] uppercase font-medium opacity-80">Balance</div>
+                      <div className="font-bold text-sm mt-0.5">{plan.balance_quantity}</div>
+                    </div>
+
+                    <div
+                      className={`rounded-lg p-2 border ${
+                        isCompleted
+                          ? 'bg-emerald-600/15 border-emerald-500/30 text-emerald-400'
+                          : 'bg-amber-500/15 border-amber-500/30 text-amber-400'
+                      }`}
+                    >
+                      <div className="text-[10px] uppercase font-medium opacity-80">Scanned</div>
+                      <div className="font-bold text-sm mt-0.5">{plan.scanned_quantity}</div>
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="space-y-1 pt-0.5">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-slate-400">Progress</span>
+                      <span className="font-bold text-slate-200">{percent}%</span>
+                    </div>
+                    <div className="w-full bg-slate-700 h-2 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          isCompleted ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Schedule Date */}
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-700/60">
+                    <span>Schedule Date:</span>
+                    <span className="font-mono text-slate-300">
+                      {plan.schedule_date
+                        ? new Date(plan.schedule_date).toLocaleDateString('en-GB')
+                        : plan.plan_date
+                        ? new Date(plan.plan_date).toLocaleDateString('en-GB')
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Table Container (Visible on sm+ screens, or on mobile when mobileView === 'table') */}
+        <div className={`overflow-x-auto -mx-1 sm:mx-0 ${mobileView === 'cards' ? 'hidden sm:block' : 'block'}`}>
+          {/* Mobile swipe helper cue */}
+          <div className="sm:hidden px-3 py-1.5 bg-slate-800/80 border-b border-slate-700 text-[11px] text-teal-400 font-medium flex items-center justify-between">
+            <span>Horizontal Table</span>
+            <span className="font-mono">Swipe horizontally &rarr;</span>
+          </div>
           <table className="w-full text-left text-xs border-collapse min-w-[780px]">
             <thead>
-              <tr className="bg-slate-800/80 border-y border-slate-700 text-slate-300">
-                <th className="px-4 py-3 font-semibold text-center w-24">Action</th>
-                <th className="px-4 py-3 font-semibold text-center w-16">SR No</th>
-                <th className="px-4 py-3 font-semibold">Part No</th>
-                <th className="px-4 py-3 font-semibold text-right">Quantity</th>
-                <th className="px-4 py-3 font-semibold text-right">Balance Quantity</th>
-                <th className="px-4 py-3 font-semibold text-right">Scan Part Quantity</th>
-                <th className="px-4 py-3 font-semibold text-center">Status</th>
-                <th className="px-4 py-3 font-semibold text-center w-40">Completed %</th>
-                <th className="px-4 py-3 font-semibold text-center">Schedule Date</th>
+              <tr className="bg-slate-800/80 border-y border-slate-700 text-slate-300 whitespace-nowrap">
+                <th className="px-4 py-3 font-semibold text-center w-24 whitespace-nowrap">Action</th>
+                <th className="px-4 py-3 font-semibold text-center w-16 whitespace-nowrap">SR No</th>
+                <th className="px-4 py-3 font-semibold whitespace-nowrap">Part No</th>
+                <th className="px-4 py-3 font-semibold text-right whitespace-nowrap">Quantity</th>
+                <th className="px-4 py-3 font-semibold text-right whitespace-nowrap">Balance Quantity</th>
+                <th className="px-4 py-3 font-semibold text-right whitespace-nowrap">Scan Part Quantity</th>
+                <th className="px-4 py-3 font-semibold text-center whitespace-nowrap">Status</th>
+                <th className="px-4 py-3 font-semibold text-center w-40 whitespace-nowrap">Completed %</th>
+                <th className="px-4 py-3 font-semibold text-center whitespace-nowrap">Schedule Date</th>
               </tr>
             </thead>
             <tbody>
