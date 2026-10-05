@@ -1,0 +1,772 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { api } from '../utils/api';
+import { useSocket } from '../hooks/useSocket';
+import * as XLSX from 'xlsx';
+import { toast } from 'sonner';
+import {
+  Upload,
+  Download,
+  FileSpreadsheet,
+  Save,
+  Pencil,
+  Trash2,
+  Search,
+  Calendar,
+  X,
+  Loader2,
+  RefreshCw,
+  Plus,
+  ChevronUp,
+} from 'lucide-react';
+
+interface DespatchPlan {
+  id: number;
+  user_id: number;
+  part_number: string;
+  quantity: number;
+  balance_quantity: number;
+  scanned_quantity: number;
+  status: 'pending' | 'completed';
+  plan_date: string;
+  schedule_date: string | null;
+  gate_pass_number: string | null;
+  created_at: string;
+}
+
+export default function PlansPage() {
+  const [plans, setPlans] = useState<DespatchPlan[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dateFilter, setDateFilter] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
+  const [searchQuery, setSearchQuery] = useState('');
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [showAddSection, setShowAddSection] = useState(false);
+
+  // Manual Add Form State
+  const [newPartNumber, setNewPartNumber] = useState('');
+  const [newQuantity, setNewQuantity] = useState('');
+  const [newScheduleDate, setNewScheduleDate] = useState(
+    new Date().toISOString().split('T')[0]
+  );
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Edit Modal State
+  const [editingPlan, setEditingPlan] = useState<DespatchPlan | null>(null);
+  const [editQty, setEditQty] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // File Upload Ref
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchPlans = async () => {
+    setLoading(true);
+    try {
+      const data = await api.get(`/api/plans?date=${dateFilter}`);
+      if (Array.isArray(data)) {
+        setPlans(data);
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to fetch dispatch plans');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPlans();
+  }, [dateFilter]);
+
+  // Real-time updates
+  useSocket('despatch:plans-changed', () => {
+    fetchPlans();
+  });
+  useSocket('despatch:scan', () => {
+    fetchPlans();
+  });
+  useSocket('despatch:gatepass', () => {
+    fetchPlans();
+  });
+
+  // Handle Manual Add Record
+  const handleAddRecord = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPartNumber.trim()) {
+      toast.error('Part number is required');
+      return;
+    }
+    const qty = parseInt(newQuantity, 10);
+    if (isNaN(qty) || qty <= 0) {
+      toast.error('Please enter a valid positive quantity');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await api.post('/api/plans', {
+        part_number: newPartNumber.trim().toUpperCase(),
+        quantity: qty,
+        schedule_date: newScheduleDate || null,
+        plan_date: dateFilter,
+      });
+      toast.success(`Part ${newPartNumber.trim().toUpperCase()} added successfully`);
+      setNewPartNumber('');
+      setNewQuantity('');
+      fetchPlans();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to add record');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Handle Excel Import
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const rawData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws);
+
+        if (!rawData || rawData.length === 0) {
+          toast.error('Excel file is empty');
+          return;
+        }
+
+        // Normalize column keys (e.g., "Part Number", "Part No", "part_number", "Quantity", "Qty")
+        const formattedPlans: Array<{ part_number: string; quantity: number }> = [];
+
+        for (const row of rawData) {
+          const partKey = Object.keys(row).find((k) =>
+            /part(\s|_)?(no|number)?/i.test(k)
+          );
+          const qtyKey = Object.keys(row).find((k) =>
+            /qty|quantity|count/i.test(k)
+          );
+
+          if (partKey && qtyKey) {
+            const partVal = String(row[partKey] || '').trim().toUpperCase();
+            const qtyVal = parseInt(String(row[qtyKey] || '0'), 10);
+            if (partVal && !isNaN(qtyVal) && qtyVal > 0) {
+              formattedPlans.push({ part_number: partVal, quantity: qtyVal });
+            }
+          }
+        }
+
+        if (formattedPlans.length === 0) {
+          toast.error(
+            'Could not find valid "Part Number" and "Quantity" columns in Excel.'
+          );
+          return;
+        }
+
+        await api.post('/api/plans/import', formattedPlans);
+        toast.success(`Imported ${formattedPlans.length} records successfully!`);
+        fetchPlans();
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Error reading Excel file');
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // Download Dummy Excel Template
+  const handleDownloadDummyExcel = () => {
+    const dummyData = [
+      { 'Part Number': 'FC373500', Quantity: 40, 'Schedule Date': dateFilter },
+      { 'Part Number': 'FEA56800', Quantity: 40, 'Schedule Date': dateFilter },
+      { 'Part Number': 'FC319400', Quantity: 2, 'Schedule Date': dateFilter },
+      { 'Part Number': 'FC320300', Quantity: 7, 'Schedule Date': dateFilter },
+      { 'Part Number': 'FEA23500', Quantity: 4, 'Schedule Date': dateFilter },
+    ];
+    const ws = XLSX.utils.json_to_sheet(dummyData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    XLSX.writeFile(wb, 'RSB_Dispatch_Plan_Template.xlsx');
+    toast.info('Template downloaded');
+  };
+
+  // Export Scanned / Plan Data
+  const handleExportScannedData = () => {
+    if (plans.length === 0) {
+      toast.error('No records to export');
+      return;
+    }
+    const exportData = plans.map((p, idx) => {
+      const pct = p.quantity > 0 ? Math.round((p.scanned_quantity / p.quantity) * 100) : 0;
+      return {
+        'SR No': idx + 1,
+        'Part Number': p.part_number,
+        Quantity: p.quantity,
+        'Balance Quantity': p.balance_quantity,
+        'Scanned Quantity': p.scanned_quantity,
+        Status: p.status === 'completed' ? 'Completed' : 'Pending',
+        'Completed %': `${pct}%`,
+        'Plan Date': p.plan_date ? p.plan_date.slice(0, 10) : '',
+        'Schedule Date': p.schedule_date ? p.schedule_date.slice(0, 10) : '',
+        'Gate Pass': p.gate_pass_number || 'None',
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Dispatch_Data');
+    XLSX.writeFile(wb, `RSB_Dispatch_Data_${dateFilter}.xlsx`);
+    toast.success('Data exported successfully');
+  };
+
+  // Delete Plan Entry
+  const handleDelete = async (id: number) => {
+    if (!window.confirm('Are you sure you want to delete this part record?')) return;
+    try {
+      await api.delete(`/api/plans/${id}`);
+      toast.success('Record deleted');
+      fetchPlans();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete record');
+    }
+  };
+
+  // Open Edit Dialog
+  const openEdit = (plan: DespatchPlan) => {
+    setEditingPlan(plan);
+    setEditQty(String(plan.quantity));
+    setEditDate(plan.schedule_date ? plan.schedule_date.slice(0, 10) : dateFilter);
+  };
+
+  // Save Edit
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPlan) return;
+    const qty = parseInt(editQty, 10);
+    if (isNaN(qty) || qty <= 0) {
+      toast.error('Valid positive quantity required');
+      return;
+    }
+    if (qty < editingPlan.scanned_quantity) {
+      toast.error(
+        `Quantity cannot be less than already scanned count (${editingPlan.scanned_quantity})`
+      );
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      await api.put(`/api/plans/${editingPlan.id}`, {
+        quantity: qty,
+        schedule_date: editDate || null,
+      });
+      toast.success('Record updated');
+      setEditingPlan(null);
+      fetchPlans();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update record');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // Filtered & Paginated Rows
+  const filteredPlans = useMemo(() => {
+    return plans.filter((p) => {
+      const q = searchQuery.toLowerCase();
+      return (
+        p.part_number.toLowerCase().includes(q) ||
+        p.status.toLowerCase().includes(q) ||
+        (p.gate_pass_number && p.gate_pass_number.toLowerCase().includes(q))
+      );
+    });
+  }, [plans, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredPlans.length / pageSize));
+  const paginatedPlans = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredPlans.slice(start, start + pageSize);
+  }, [filteredPlans, currentPage, pageSize]);
+
+  // Totals calculations
+  const totals = useMemo(() => {
+    let totalQty = 0;
+    let totalBal = 0;
+    let totalScan = 0;
+    plans.forEach((p) => {
+      totalQty += Number(p.quantity) || 0;
+      totalBal += Number(p.balance_quantity) || 0;
+      totalScan += Number(p.scanned_quantity) || 0;
+    });
+    return { totalQty, totalBal, totalScan };
+  }, [plans]);
+
+  return (
+    <div className="space-y-6">
+      {/* Top Header Card — Styled matching Reference Image 1 */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+        {/* Banner Title */}
+        <div className="bg-teal-700 px-6 py-3 text-center">
+          <h1 className="text-xl font-bold text-white tracking-wide">Part Details</h1>
+        </div>
+
+        <div className="p-4 sm:p-5 space-y-4">
+          {/* Top Actions Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAddSection(!showAddSection)}
+                className="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs sm:text-sm font-semibold shadow-md shadow-teal-600/20 transition-all cursor-pointer"
+              >
+                {showAddSection ? <ChevronUp className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                {showAddSection ? 'Hide Adding Options' : '+ Add / Import Records'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportScannedData}
+                className="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/40 text-xs sm:text-sm font-semibold transition-all cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Export Scanned Data
+              </button>
+            </div>
+
+            {/* Search By Date Input */}
+            <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs sm:text-sm">
+              <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+              <span className="text-[11px] sm:text-xs text-slate-400 font-medium whitespace-nowrap">Date:</span>
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className="bg-transparent border-none text-white text-xs sm:text-sm font-medium focus:outline-none cursor-pointer"
+              />
+              <button
+                type="button"
+                onClick={fetchPlans}
+                title="Refresh"
+                className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-700 transition-colors"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          </div>
+
+          {/* Collapsible Adding / Importing Section */}
+          {showAddSection && (
+            <div className="bg-slate-950/80 p-4 sm:p-5 rounded-2xl border border-teal-500/30 shadow-inner space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
+                  <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide">
+                    Add or Import Dispatch Plan Records
+                  </h3>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Hidden Excel Input */}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    accept=".xlsx, .xls, .csv"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    Import Records
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadDummyExcel}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 text-xs font-semibold transition-all cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Dummy Excel
+                  </button>
+                </div>
+              </div>
+
+              {/* Manual Entry Form */}
+              <form
+                onSubmit={handleAddRecord}
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 items-end"
+              >
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Part Number:
+                  </label>
+                  <input
+                    type="text"
+                    value={newPartNumber}
+                    onChange={(e) => setNewPartNumber(e.target.value)}
+                    placeholder="e.g. FC373500"
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono uppercase"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Quantity:
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newQuantity}
+                    onChange={(e) => setNewQuantity(e.target.value)}
+                    placeholder="e.g. 40"
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Date:
+                  </label>
+                  <input
+                    type="date"
+                    value={newScheduleDate}
+                    onChange={(e) => setNewScheduleDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="w-full py-2 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSaving ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    Save
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Filter & Pagination Controls */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1">
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <span>Show</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-white focus:outline-none"
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <span>entries</span>
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search part or status..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Table Container */}
+        <div className="overflow-x-auto -mx-1 sm:mx-0">
+          <table className="w-full text-left text-xs border-collapse min-w-[780px]">
+            <thead>
+              <tr className="bg-slate-800/80 border-y border-slate-700 text-slate-300">
+                <th className="px-4 py-3 font-semibold text-center w-24">Action</th>
+                <th className="px-4 py-3 font-semibold text-center w-16">SR No</th>
+                <th className="px-4 py-3 font-semibold">Part No</th>
+                <th className="px-4 py-3 font-semibold text-right">Quantity</th>
+                <th className="px-4 py-3 font-semibold text-right">Balance Quantity</th>
+                <th className="px-4 py-3 font-semibold text-right">Scan Part Quantity</th>
+                <th className="px-4 py-3 font-semibold text-center">Status</th>
+                <th className="px-4 py-3 font-semibold text-center w-40">Completed %</th>
+                <th className="px-4 py-3 font-semibold text-center">Schedule Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* Highlighted Cyan Total Summary Row (Reference Image 1) */}
+              <tr className="bg-cyan-500 text-slate-950 font-bold border-b border-cyan-400">
+                <td colSpan={2} className="px-4 py-2.5 text-center uppercase tracking-wider">
+                  Total -
+                </td>
+                <td className="px-4 py-2.5 font-bold">Total Planned Parts ({plans.length})</td>
+                <td className="px-4 py-2.5 text-right font-extrabold text-sm">
+                  {totals.totalQty}
+                </td>
+                <td className="px-4 py-2.5 text-right font-extrabold text-sm">
+                  {totals.totalBal}
+                </td>
+                <td className="px-4 py-2.5 text-right font-extrabold text-sm">
+                  {totals.totalScan}
+                </td>
+                <td colSpan={3} className="px-4 py-2.5 text-center text-xs">
+                  {totals.totalQty > 0
+                    ? `${Math.round((totals.totalScan / totals.totalQty) * 100)}% Fulfilled`
+                    : '0%'}
+                </td>
+              </tr>
+
+              {/* Data Rows */}
+              {loading ? (
+                <tr>
+                  <td colSpan={9} className="py-12 text-center text-slate-500">
+                    <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-teal-400" />
+                    Loading records...
+                  </td>
+                </tr>
+              ) : paginatedPlans.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-12 text-center text-slate-500">
+                    No records found for the selected date. Import Excel or add records above.
+                  </td>
+                </tr>
+              ) : (
+                paginatedPlans.map((plan, index) => {
+                  const srNo = (currentPage - 1) * pageSize + index + 1;
+                  const isCompleted = plan.status === 'completed' || plan.balance_quantity === 0;
+                  const percent =
+                    plan.quantity > 0
+                      ? Math.min(100, Math.round((plan.scanned_quantity / plan.quantity) * 100))
+                      : 0;
+
+                  return (
+                    <tr
+                      key={plan.id}
+                      className="border-b border-slate-800/80 hover:bg-slate-800/30 transition-colors"
+                    >
+                      {/* Action buttons (Green edit, Red delete like reference) */}
+                      <td className="px-4 py-2.5 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => openEdit(plan)}
+                            title="Edit Plan"
+                            className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(plan.id)}
+                            title="Delete Plan"
+                            className="p-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+
+                      {/* SR No */}
+                      <td className="px-4 py-2.5 text-center font-bold text-slate-300">
+                        {srNo}
+                      </td>
+
+                      {/* Part No */}
+                      <td className="px-4 py-2.5 font-bold font-mono text-white tracking-wide">
+                        {plan.part_number}
+                      </td>
+
+                      {/* Quantity */}
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-200">
+                        {plan.quantity}
+                      </td>
+
+                      {/* Balance Quantity (Orange if pending, Green if 0) */}
+                      <td
+                        className={`px-4 py-2.5 text-right font-bold ${
+                          isCompleted
+                            ? 'bg-emerald-600/90 text-white'
+                            : 'bg-amber-500/90 text-slate-950'
+                        }`}
+                      >
+                        {plan.balance_quantity}
+                      </td>
+
+                      {/* Scan Part Quantity (Orange if pending, Green if completed) */}
+                      <td
+                        className={`px-4 py-2.5 text-right font-bold ${
+                          isCompleted
+                            ? 'bg-emerald-600/90 text-white'
+                            : 'bg-amber-500/90 text-slate-950'
+                        }`}
+                      >
+                        {plan.scanned_quantity}
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-4 py-2.5 text-center font-semibold">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                            isCompleted
+                              ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
+                              : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                          }`}
+                        >
+                          {isCompleted ? 'Completed' : 'Pending'}
+                        </span>
+                      </td>
+
+                      {/* Completed % Progress Bar (Reference Image 1) */}
+                      <td className="px-4 py-2.5 text-center">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-slate-700 h-5 rounded overflow-hidden relative border border-slate-600">
+                            <div
+                              className={`h-full transition-all duration-300 ${
+                                isCompleted ? 'bg-emerald-500' : 'bg-amber-500'
+                              }`}
+                              style={{ width: `${percent}%` }}
+                            />
+                            <span
+                              className={`absolute inset-0 flex items-center justify-center text-[10px] font-bold ${
+                                percent > 50 ? 'text-slate-950' : 'text-white'
+                              }`}
+                            >
+                              {percent}%
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Schedule Date */}
+                      <td className="px-4 py-2.5 text-center text-slate-400 font-mono">
+                        {plan.schedule_date
+                          ? new Date(plan.schedule_date).toLocaleDateString('en-GB')
+                          : plan.plan_date
+                          ? new Date(plan.plan_date).toLocaleDateString('en-GB')
+                          : '—'}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination Footer */}
+        <div className="p-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
+          <div>
+            Showing {filteredPlans.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} to{' '}
+            {Math.min(currentPage * pageSize, filteredPlans.length)} of {filteredPlans.length}{' '}
+            entries
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-40 transition-colors"
+            >
+              Previous
+            </button>
+            <span className="px-3 py-1.5 rounded-lg bg-teal-600 text-white font-bold">
+              {currentPage}
+            </span>
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-40 transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Edit Record Modal */}
+      {editingPlan && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-teal-400" />
+                Edit Plan: {editingPlan.part_number}
+              </h3>
+              <button
+                onClick={() => setEditingPlan(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdate} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">
+                  Total Planned Quantity:
+                </label>
+                <input
+                  type="number"
+                  min={editingPlan.scanned_quantity}
+                  value={editQty}
+                  onChange={(e) => setEditQty(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  required
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Already scanned: {editingPlan.scanned_quantity} (quantity cannot be lower than this)
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">
+                  Schedule Date:
+                </label>
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingPlan(null)}
+                  className="px-4 py-2 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdating}
+                  className="px-5 py-2 rounded-xl text-sm font-semibold bg-teal-600 hover:bg-teal-500 text-white transition-all shadow-md shadow-teal-600/20 disabled:opacity-50"
+                >
+                  {isUpdating ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
