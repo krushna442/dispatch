@@ -91,55 +91,174 @@ export default function GatePassPage() {
     });
   }, [gatePasses, searchQuery]);
 
-  // Export Gate Pass to Excel with Scanned Labels
+  // Export Gate Pass to Excel with Scanned Labels (grouped & merged Part Numbers)
   const exportGatePass = async (gp: GatePass) => {
     try {
       toast.info(`Generating Excel export for Gate Pass #${gp.gate_pass_number}...`);
       const scans = await api.get(`/api/gatepass/${gp.id}/scans`).catch(() => []);
 
-      const scanRows =
-        Array.isArray(scans) && scans.length > 0
-          ? scans.map((s: any, idx: number) => ({
-              'SR No': idx + 1,
-              'Scanned Label (Barcode Text)':
-                s.scanned_label || s.raw_scan_text || s.serial_number || '—',
-              'Part Number': s.part_number,
-              'Serial Number': s.serial_number,
-              'Vendor Code': s.vendor_code || '—',
-              'Scanned By': s.username
-                ? `@${s.username} (${s.user_name || ''})`
-                : s.user_id
-                ? `User #${s.user_id}`
-                : '—',
-              'Status': (s.status || 'success').toUpperCase(),
-              'Remark':
-                s.remark ||
-                (s.status === 'reject' ? 'duplicate scan' : 'verified'),
-              'Scan Date & Time': s.scanned_at
-                ? new Date(s.scanned_at).toLocaleString('en-GB')
-                : '',
-            }))
-          : [
-              {
-                'SR No': 1,
-                'Scanned Label (Barcode Text)': 'No scans recorded',
-                'Part Number': '—',
-                'Serial Number': '—',
-                'Vendor Code': '—',
-                'Scanned By': '—',
-                'Status': '—',
-                'Remark': '—',
-                'Scan Date & Time': '—',
-              },
-            ];
+      const scansList = Array.isArray(scans) ? scans : [];
+      const scansByPart = new Map<string, any[]>();
+      for (const s of scansList) {
+        const pNo = (s.part_number || '').trim().toUpperCase();
+        if (!scansByPart.has(pNo)) scansByPart.set(pNo, []);
+        scansByPart.get(pNo)!.push(s);
+      }
 
-      const wsScans = XLSX.utils.json_to_sheet(scanRows);
-      const scanCols = Object.keys(scanRows[0] || {}).length;
+      const headers = [
+        'SR No',
+        'Part Number',
+        'Scanned Label (Barcode Text)',
+        'Serial Number',
+        'Vendor Code',
+        'Scanned By',
+        'Status',
+        'Remark',
+        'Scan Date & Time',
+      ];
 
+      const rows: any[][] = [headers];
+      const merges: any[] = [];
+      const redRows = new Set<number>();
+
+      let currentSrNo = 1;
+      let currentRowIdx = 1;
+
+      const processedParts = new Set<string>();
+      for (const h of gp.history || []) {
+        const pNo = (h.part_number || '').trim().toUpperCase();
+        if (processedParts.has(pNo)) continue;
+        processedParts.add(pNo);
+
+        const partScans = scansByPart.get(pNo) || [];
+        const count = partScans.length;
+
+        if (count === 0) {
+          rows.push([
+            currentSrNo,
+            pNo,
+            'No scans recorded',
+            '—',
+            '—',
+            '—',
+            '—',
+            '—',
+            '—',
+          ]);
+          currentRowIdx++;
+          currentSrNo++;
+        } else {
+          const startRow = currentRowIdx;
+          const endRow = startRow + count - 1;
+
+          if (count > 1) {
+            merges.push({ s: { r: startRow, c: 0 }, e: { r: endRow, c: 0 } });
+            merges.push({ s: { r: startRow, c: 1 }, e: { r: endRow, c: 1 } });
+          }
+
+          partScans.forEach((s: any, idx: number) => {
+            const isDup =
+              s.status === 'reject' ||
+              (s.remark && s.remark.toLowerCase().includes('duplicate'));
+            const rIdx = startRow + idx;
+            if (isDup) redRows.add(rIdx);
+
+            const label =
+              s.scanned_label || s.raw_scan_text || s.serial_number || '—';
+            const serial = s.serial_number || '—';
+            const vendor = s.vendor_code || '—';
+            const scannedBy = s.username
+              ? `@${s.username} (${s.user_name || ''})`
+              : s.user_id
+              ? `User #${s.user_id}`
+              : '—';
+            const status = (s.status || 'success').toUpperCase();
+            const remark =
+              s.remark ||
+              (s.status === 'reject' ? 'duplicate scan' : 'verified');
+            const time = s.scanned_at
+              ? new Date(s.scanned_at).toLocaleString('en-GB')
+              : '—';
+
+            rows.push([
+              idx === 0 ? currentSrNo : '',
+              idx === 0 ? pNo : '',
+              label,
+              serial,
+              vendor,
+              scannedBy,
+              status,
+              remark,
+              time,
+            ]);
+            currentRowIdx++;
+          });
+
+          currentSrNo++;
+        }
+      }
+
+      // Any remaining parts
+      for (const [pNo, partScans] of scansByPart.entries()) {
+        if (processedParts.has(pNo)) continue;
+        processedParts.add(pNo);
+
+        const count = partScans.length;
+        const startRow = currentRowIdx;
+        const endRow = startRow + count - 1;
+
+        if (count > 1) {
+          merges.push({ s: { r: startRow, c: 0 }, e: { r: endRow, c: 0 } });
+          merges.push({ s: { r: startRow, c: 1 }, e: { r: endRow, c: 1 } });
+        }
+
+        partScans.forEach((s: any, idx: number) => {
+          const isDup =
+            s.status === 'reject' ||
+            (s.remark && s.remark.toLowerCase().includes('duplicate'));
+          const rIdx = startRow + idx;
+          if (isDup) redRows.add(rIdx);
+
+          const label =
+            s.scanned_label || s.raw_scan_text || s.serial_number || '—';
+          const serial = s.serial_number || '—';
+          const vendor = s.vendor_code || '—';
+          const scannedBy = s.username
+            ? `@${s.username} (${s.user_name || ''})`
+            : s.user_id
+            ? `User #${s.user_id}`
+            : '—';
+          const status = (s.status || 'success').toUpperCase();
+          const remark =
+            s.remark ||
+            (s.status === 'reject' ? 'duplicate scan' : 'verified');
+          const time = s.scanned_at
+            ? new Date(s.scanned_at).toLocaleString('en-GB')
+            : '—';
+
+          rows.push([
+            idx === 0 ? currentSrNo : '',
+            idx === 0 ? pNo : '',
+            label,
+            serial,
+            vendor,
+            scannedBy,
+            status,
+            remark,
+            time,
+          ]);
+          currentRowIdx++;
+        });
+
+        currentSrNo++;
+      }
+
+      const wsScans = XLSX.utils.aoa_to_sheet(rows);
+      wsScans['!merges'] = merges;
       wsScans['!cols'] = [
         { wch: 8 },  // SR No
-        { wch: 40 }, // Scanned Label
-        { wch: 18 }, // Part Number
+        { wch: 20 }, // Part Number
+        { wch: 42 }, // Scanned Label
         { wch: 18 }, // Serial Number
         { wch: 14 }, // Vendor Code
         { wch: 24 }, // Scanned By
@@ -148,39 +267,74 @@ export default function GatePassPage() {
         { wch: 22 }, // Scan Date & Time
       ];
 
-      for (let c = 0; c < scanCols; c++) {
+      for (let c = 0; c < headers.length; c++) {
         const addr = XLSX.utils.encode_cell({ r: 0, c });
         if (wsScans[addr]) {
           wsScans[addr].s = {
             fill: { fgColor: { rgb: '0F766E' } },
-            font: { color: { rgb: 'FFFFFF' }, bold: true },
+            font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 11 },
             alignment: { horizontal: 'center', vertical: 'center' },
+            border: {
+              top: { style: 'thin', color: { rgb: '0D9488' } },
+              bottom: { style: 'thin', color: { rgb: '0D9488' } },
+              left: { style: 'thin', color: { rgb: '0D9488' } },
+              right: { style: 'thin', color: { rgb: '0D9488' } },
+            },
           };
         }
       }
 
-      scanRows.forEach((row: any, rIdx: number) => {
-        const isDup =
-          row.Status === 'REJECT' ||
-          row.Remark?.toLowerCase().includes('duplicate');
-        if (isDup) {
-          for (let c = 0; c < scanCols; c++) {
-            const addr = XLSX.utils.encode_cell({ r: rIdx + 1, c });
-            if (wsScans[addr]) {
-              wsScans[addr].s = {
-                fill: { fgColor: { rgb: 'FFC7CE' } },
-                font: { color: { rgb: '9C0006' }, bold: true },
-                border: {
-                  top: { style: 'thin', color: { rgb: 'E0B4B4' } },
-                  bottom: { style: 'thin', color: { rgb: 'E0B4B4' } },
-                  left: { style: 'thin', color: { rgb: 'E0B4B4' } },
-                  right: { style: 'thin', color: { rgb: 'E0B4B4' } },
-                },
-              };
-            }
+      for (let r = 1; r < rows.length; r++) {
+        const isDup = redRows.has(r);
+        for (let c = 0; c < headers.length; c++) {
+          const addr = XLSX.utils.encode_cell({ r, c });
+          if (!wsScans[addr]) {
+            wsScans[addr] = { t: 's', v: '' };
+          }
+
+          if (c === 0 || c === 1) {
+            wsScans[addr].s = {
+              font: { bold: true, color: { rgb: '0F172A' }, sz: 11 },
+              alignment: { horizontal: 'center', vertical: 'center' },
+              border: {
+                top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+                bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+                left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+                right: { style: 'thin', color: { rgb: 'CBD5E1' } },
+              },
+            };
+          } else if (isDup) {
+            wsScans[addr].s = {
+              fill: { fgColor: { rgb: 'FFC7CE' } }, // Soft red fill
+              font: { color: { rgb: '9C0006' }, bold: true, sz: 10 }, // Dark red bold text
+              alignment: {
+                vertical: 'center',
+                horizontal: c === 2 ? 'left' : 'center',
+              },
+              border: {
+                top: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                bottom: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                left: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                right: { style: 'thin', color: { rgb: 'E0B4B4' } },
+              },
+            };
+          } else {
+            wsScans[addr].s = {
+              font: { color: { rgb: '334155' }, sz: 10 },
+              alignment: {
+                vertical: 'center',
+                horizontal: c === 2 ? 'left' : 'center',
+              },
+              border: {
+                top: { style: 'thin', color: { rgb: 'F1F5F9' } },
+                bottom: { style: 'thin', color: { rgb: 'F1F5F9' } },
+                left: { style: 'thin', color: { rgb: 'F1F5F9' } },
+                right: { style: 'thin', color: { rgb: 'F1F5F9' } },
+              },
+            };
           }
         }
-      });
+      }
 
       const summaryRows: Array<Record<string, any>> = (gp.history || []).map((h, i) => ({
         'SR No': i + 1,
@@ -515,9 +669,9 @@ export default function GatePassPage() {
                         <table className="w-full text-left text-xs">
                           <thead>
                             <tr className="bg-slate-800/80 text-slate-400 border-b border-slate-800">
-                              <th className="px-3 py-2.5 w-10 text-center">#</th>
-                              <th className="px-3 py-2.5 font-medium">Scanned Label (Barcode Text)</th>
-                              <th className="px-3 py-2.5 font-medium">Part Number</th>
+                              <th className="px-3 py-2.5 w-12 text-center">SR No</th>
+                              <th className="px-4 py-2.5 w-40 text-center font-medium">Part Number</th>
+                              <th className="px-4 py-2.5 font-medium">Scanned Label (Barcode Text)</th>
                               <th className="px-3 py-2.5 font-medium">Serial No</th>
                               <th className="px-3 py-2.5 font-medium">Vendor</th>
                               <th className="px-3 py-2.5 font-medium">Scanned By</th>
@@ -527,57 +681,92 @@ export default function GatePassPage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-800/60 font-mono">
-                            {gatePassScans[gp.id] && gatePassScans[gp.id].length > 0 ? (
-                              gatePassScans[gp.id].map((s: any, idx: number) => {
-                                const isReject = s.status === 'reject' || s.remark?.toLowerCase().includes('duplicate');
+                            {(() => {
+                              const scansList = gatePassScans[gp.id] || [];
+                              if (scansList.length === 0) {
                                 return (
-                                  <tr
-                                    key={s.id || idx}
-                                    className={`transition-colors ${
-                                      isReject
-                                        ? 'bg-red-950/30 text-red-200 hover:bg-red-950/50'
-                                        : 'hover:bg-slate-800/20'
-                                    }`}
-                                  >
-                                    <td className="px-3 py-2 text-center text-slate-500">{idx + 1}</td>
-                                    <td className="px-3 py-2 font-mono text-[11px] text-teal-300 break-all max-w-xs">
-                                      {s.scanned_label || s.raw_scan_text || s.serial_number || '—'}
-                                    </td>
-                                    <td className="px-3 py-2 font-bold text-white tracking-wider">
-                                      {s.part_number}
-                                    </td>
-                                    <td className="px-3 py-2 text-slate-300">{s.serial_number}</td>
-                                    <td className="px-3 py-2 text-slate-400">{s.vendor_code || '—'}</td>
-                                    <td className="px-3 py-2 text-slate-300">
-                                      {s.username ? `@${s.username}` : (s.user_id ? `User #${s.user_id}` : '—')}
-                                    </td>
-                                    <td className="px-3 py-2 text-center">
-                                      <span
-                                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                          isReject
-                                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                                            : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                        }`}
-                                      >
-                                        {s.status === 'reject' ? 'REJECT' : 'SUCCESS'}
-                                      </span>
-                                    </td>
-                                    <td className={`px-3 py-2 text-[11px] ${isReject ? 'text-red-400 font-bold' : 'text-slate-400'}`}>
-                                      {s.remark || (s.status === 'reject' ? 'duplicate scan' : 'verified')}
-                                    </td>
-                                    <td className="px-3 py-2 text-right text-slate-400 text-[11px]">
-                                      {s.scanned_at ? new Date(s.scanned_at).toLocaleString('en-GB') : '—'}
+                                  <tr>
+                                    <td colSpan={9} className="px-4 py-4 text-center text-slate-500 font-sans">
+                                      No scanned barcode labels found for this gate pass.
                                     </td>
                                   </tr>
                                 );
-                              })
-                            ) : (
-                              <tr>
-                                <td colSpan={9} className="px-4 py-3 text-center text-slate-500">
-                                  No scanned barcode labels found for this gate pass.
-                                </td>
-                              </tr>
-                            )}
+                              }
+
+                              const scansByPart = new Map<string, any[]>();
+                              scansList.forEach((s: any) => {
+                                const pNo = (s.part_number || '').trim().toUpperCase();
+                                if (!scansByPart.has(pNo)) scansByPart.set(pNo, []);
+                                scansByPart.get(pNo)!.push(s);
+                              });
+
+                              return Array.from(scansByPart.entries()).flatMap(([pNo, pScans], gIdx) => {
+                                const groupRowCount = pScans.length;
+                                return pScans.map((s: any, idx: number) => {
+                                  const isReject =
+                                    s.status === 'reject' ||
+                                    s.remark?.toLowerCase().includes('duplicate');
+                                  return (
+                                    <tr
+                                      key={`${pNo}-${s.id || idx}`}
+                                      className={`transition-colors ${
+                                        isReject
+                                          ? 'bg-red-950/40 text-red-200 hover:bg-red-950/60'
+                                          : 'hover:bg-slate-800/20'
+                                      }`}
+                                    >
+                                      {idx === 0 && (
+                                        <>
+                                          <td
+                                            rowSpan={groupRowCount}
+                                            className="px-3 py-2 text-center font-bold text-slate-300 align-middle border-r border-slate-800 bg-slate-900/60"
+                                          >
+                                            {gIdx + 1}
+                                          </td>
+                                          <td
+                                            rowSpan={groupRowCount}
+                                            className="px-4 py-2 text-center font-mono font-bold text-white tracking-wider align-middle border-r border-slate-800 bg-slate-900/60"
+                                          >
+                                            {pNo}
+                                          </td>
+                                        </>
+                                      )}
+                                      <td
+                                        className={`px-4 py-2 font-mono text-[11px] break-all max-w-sm ${
+                                          isReject
+                                            ? 'text-red-300 font-bold bg-red-900/20'
+                                            : 'text-teal-300'
+                                        }`}
+                                      >
+                                        {s.scanned_label || s.raw_scan_text || s.serial_number || '—'}
+                                      </td>
+                                      <td className="px-3 py-2 text-slate-300">{s.serial_number}</td>
+                                      <td className="px-3 py-2 text-slate-400">{s.vendor_code || '—'}</td>
+                                      <td className="px-3 py-2 text-slate-300">
+                                        {s.username ? `@${s.username}` : (s.user_id ? `User #${s.user_id}` : '—')}
+                                      </td>
+                                      <td className="px-3 py-2 text-center">
+                                        <span
+                                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                            isReject
+                                              ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                              : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                          }`}
+                                        >
+                                          {s.status === 'reject' ? 'REJECT' : 'SUCCESS'}
+                                        </span>
+                                      </td>
+                                      <td className={`px-3 py-2 text-[11px] ${isReject ? 'text-red-400 font-bold' : 'text-slate-400'}`}>
+                                        {s.remark || (s.status === 'reject' ? 'duplicate scan' : 'verified')}
+                                      </td>
+                                      <td className="px-3 py-2 text-right text-slate-400 text-[11px]">
+                                        {s.scanned_at ? new Date(s.scanned_at).toLocaleString('en-GB') : '—'}
+                                      </td>
+                                    </tr>
+                                  );
+                                });
+                              });
+                            })()}
                           </tbody>
                         </table>
                       </div>
