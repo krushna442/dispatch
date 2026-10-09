@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { api } from '../utils/api';
 import { useSocket } from '../hooks/useSocket';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { toast } from 'sonner';
 import {
   Truck,
@@ -40,6 +40,8 @@ export default function GatePassPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedPassId, setExpandedPassId] = useState<number | null>(null);
+  const [gatePassScans, setGatePassScans] = useState<Record<number, any[]>>({});
+  const [activeTabMap, setActiveTabMap] = useState<Record<number, 'summary' | 'scans'>>({});
 
   const fetchGatePasses = async () => {
     try {
@@ -62,8 +64,20 @@ export default function GatePassPage() {
     fetchGatePasses();
   });
 
-  const toggleExpand = (id: number) => {
-    setExpandedPassId(expandedPassId === id ? null : id);
+  const toggleExpand = async (id: number) => {
+    const nextState = expandedPassId === id ? null : id;
+    setExpandedPassId(nextState);
+    if (nextState !== null && !gatePassScans[id]) {
+      try {
+        const scans = await api.get(`/api/gatepass/${id}/scans`);
+        setGatePassScans((prev) => ({
+          ...prev,
+          [id]: Array.isArray(scans) ? scans : [],
+        }));
+      } catch {
+        // silent fallback
+      }
+    }
   };
 
   const filteredPasses = useMemo(() => {
@@ -77,22 +91,146 @@ export default function GatePassPage() {
     });
   }, [gatePasses, searchQuery]);
 
-  // Export Gate Pass to Excel
-  const exportGatePass = (gp: GatePass) => {
-    const data = (gp.history || []).map((h, i) => ({
-      'SR No': i + 1,
-      'Gate Pass Number': gp.gate_pass_number,
-      'Part Number': h.part_number,
-      Quantity: h.quantity,
-      'Dispatched Date': gp.plan_date,
-      'Timestamp': new Date(gp.created_at).toLocaleString(),
-    }));
+  // Export Gate Pass to Excel with Scanned Labels
+  const exportGatePass = async (gp: GatePass) => {
+    try {
+      toast.info(`Generating Excel export for Gate Pass #${gp.gate_pass_number}...`);
+      const scans = await api.get(`/api/gatepass/${gp.id}/scans`).catch(() => []);
 
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, gp.gate_pass_number);
-    XLSX.writeFile(wb, `GatePass_${gp.gate_pass_number}.xlsx`);
-    toast.success('Gate pass exported to Excel');
+      const scanRows =
+        Array.isArray(scans) && scans.length > 0
+          ? scans.map((s: any, idx: number) => ({
+              'SR No': idx + 1,
+              'Scanned Label (Barcode Text)':
+                s.scanned_label || s.raw_scan_text || s.serial_number || '—',
+              'Part Number': s.part_number,
+              'Serial Number': s.serial_number,
+              'Vendor Code': s.vendor_code || '—',
+              'Scanned By': s.username
+                ? `@${s.username} (${s.user_name || ''})`
+                : s.user_id
+                ? `User #${s.user_id}`
+                : '—',
+              'Status': (s.status || 'success').toUpperCase(),
+              'Remark':
+                s.remark ||
+                (s.status === 'reject' ? 'duplicate scan' : 'verified'),
+              'Scan Date & Time': s.scanned_at
+                ? new Date(s.scanned_at).toLocaleString('en-GB')
+                : '',
+            }))
+          : [
+              {
+                'SR No': 1,
+                'Scanned Label (Barcode Text)': 'No scans recorded',
+                'Part Number': '—',
+                'Serial Number': '—',
+                'Vendor Code': '—',
+                'Scanned By': '—',
+                'Status': '—',
+                'Remark': '—',
+                'Scan Date & Time': '—',
+              },
+            ];
+
+      const wsScans = XLSX.utils.json_to_sheet(scanRows);
+      const scanCols = Object.keys(scanRows[0] || {}).length;
+
+      wsScans['!cols'] = [
+        { wch: 8 },  // SR No
+        { wch: 40 }, // Scanned Label
+        { wch: 18 }, // Part Number
+        { wch: 18 }, // Serial Number
+        { wch: 14 }, // Vendor Code
+        { wch: 24 }, // Scanned By
+        { wch: 14 }, // Status
+        { wch: 20 }, // Remark
+        { wch: 22 }, // Scan Date & Time
+      ];
+
+      for (let c = 0; c < scanCols; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 0, c });
+        if (wsScans[addr]) {
+          wsScans[addr].s = {
+            fill: { fgColor: { rgb: '0F766E' } },
+            font: { color: { rgb: 'FFFFFF' }, bold: true },
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        }
+      }
+
+      scanRows.forEach((row: any, rIdx: number) => {
+        const isDup =
+          row.Status === 'REJECT' ||
+          row.Remark?.toLowerCase().includes('duplicate');
+        if (isDup) {
+          for (let c = 0; c < scanCols; c++) {
+            const addr = XLSX.utils.encode_cell({ r: rIdx + 1, c });
+            if (wsScans[addr]) {
+              wsScans[addr].s = {
+                fill: { fgColor: { rgb: 'FFC7CE' } },
+                font: { color: { rgb: '9C0006' }, bold: true },
+                border: {
+                  top: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                  bottom: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                  left: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                  right: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                },
+              };
+            }
+          }
+        }
+      });
+
+      const summaryRows: Array<Record<string, any>> = (gp.history || []).map((h, i) => ({
+        'SR No': i + 1,
+        'Gate Pass Number': gp.gate_pass_number,
+        'Part Number': h.part_number,
+        'Quantity': h.quantity,
+        'Dispatched Date': gp.plan_date,
+        'Timestamp': new Date(gp.created_at).toLocaleString(),
+      }));
+
+      summaryRows.push({
+        'SR No': '',
+        'Gate Pass Number': '',
+        'Part Number': 'GRAND TOTAL',
+        'Quantity': gp.total_quantity,
+        'Dispatched Date': '',
+        'Timestamp': '',
+      });
+
+      const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+      const sumCols = Object.keys(summaryRows[0] || {}).length;
+      wsSummary['!cols'] = [
+        { wch: 8 },
+        { wch: 20 },
+        { wch: 18 },
+        { wch: 14 },
+        { wch: 18 },
+        { wch: 22 },
+      ];
+
+      for (let c = 0; c < sumCols; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 0, c });
+        if (wsSummary[addr]) {
+          wsSummary[addr].s = {
+            fill: { fgColor: { rgb: '0F766E' } },
+            font: { color: { rgb: 'FFFFFF' }, bold: true },
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        }
+      }
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, wsScans, 'Scanned_Labels');
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Gate_Pass_Summary');
+      XLSX.writeFile(wb, `GatePass_${gp.gate_pass_number}_Scanned_Labels.xlsx`);
+      toast.success('Gate pass exported with scanned labels!');
+    } catch (err: unknown) {
+      console.error('Export error:', err);
+      toast.error('Failed to export gate pass');
+    }
   };
 
   // Print Gate Pass Slip
@@ -300,46 +438,150 @@ export default function GatePassPage() {
                   </div>
                 </div>
 
-                {/* Expanded Details Table */}
+                {/* Expanded Details Section */}
                 {isExpanded && (
-                  <div className="border-t border-slate-800 bg-slate-950/60 p-5">
-                    <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                      <Package className="w-4 h-4 text-teal-400" />
-                      Loaded Parts Detail
-                    </h3>
+                  <div className="border-t border-slate-800 bg-slate-950/60 p-4 sm:p-5 space-y-4">
+                    {/* View Switcher Tabs */}
+                    <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+                      <button
+                        onClick={() =>
+                          setActiveTabMap((prev) => ({
+                            ...prev,
+                            [gp.id]: 'summary',
+                          }))
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                          (activeTabMap[gp.id] || 'summary') === 'summary'
+                            ? 'bg-teal-500/20 text-teal-400 border border-teal-500/30'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <Package className="w-3.5 h-3.5" />
+                        Parts Summary ({gp.history?.length || 0})
+                      </button>
+                      <button
+                        onClick={() =>
+                          setActiveTabMap((prev) => ({
+                            ...prev,
+                            [gp.id]: 'scans',
+                          }))
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                          activeTabMap[gp.id] === 'scans'
+                            ? 'bg-teal-500/20 text-teal-400 border border-teal-500/30'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <Search className="w-3.5 h-3.5" />
+                        Scanned Labels ({gatePassScans[gp.id]?.length || 0})
+                      </button>
+                    </div>
 
-                    <div className="overflow-x-auto rounded-xl border border-slate-800">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="bg-slate-800/80 text-slate-400 border-b border-slate-800">
-                            <th className="px-4 py-2.5 w-12 text-center">#</th>
-                            <th className="px-4 py-2.5 font-medium">Part Number</th>
-                            <th className="px-4 py-2.5 font-medium text-right">Quantity Loaded</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/60 font-mono">
-                          {gp.history && gp.history.length > 0 ? (
-                            gp.history.map((item, idx) => (
-                              <tr key={item.id} className="hover:bg-slate-800/20">
-                                <td className="px-4 py-2 text-center text-slate-500">{idx + 1}</td>
-                                <td className="px-4 py-2 font-bold text-white tracking-wider">
-                                  {item.part_number}
-                                </td>
-                                <td className="px-4 py-2 text-right font-extrabold text-teal-400">
-                                  {item.quantity}
+                    {(activeTabMap[gp.id] || 'summary') === 'summary' ? (
+                      <div className="overflow-x-auto rounded-xl border border-slate-800">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="bg-slate-800/80 text-slate-400 border-b border-slate-800">
+                              <th className="px-4 py-2.5 w-12 text-center">#</th>
+                              <th className="px-4 py-2.5 font-medium">Part Number</th>
+                              <th className="px-4 py-2.5 font-medium text-right">Quantity Loaded</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60 font-mono">
+                            {gp.history && gp.history.length > 0 ? (
+                              gp.history.map((item, idx) => (
+                                <tr key={item.id} className="hover:bg-slate-800/20">
+                                  <td className="px-4 py-2 text-center text-slate-500">{idx + 1}</td>
+                                  <td className="px-4 py-2 font-bold text-white tracking-wider">
+                                    {item.part_number}
+                                  </td>
+                                  <td className="px-4 py-2 text-right font-extrabold text-teal-400">
+                                    {item.quantity}
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan={3} className="px-4 py-3 text-center text-slate-500">
+                                  No items recorded for this gate pass.
                                 </td>
                               </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={3} className="px-4 py-3 text-center text-slate-500">
-                                No items recorded for this gate pass.
-                              </td>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-xl border border-slate-800">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="bg-slate-800/80 text-slate-400 border-b border-slate-800">
+                              <th className="px-3 py-2.5 w-10 text-center">#</th>
+                              <th className="px-3 py-2.5 font-medium">Scanned Label (Barcode Text)</th>
+                              <th className="px-3 py-2.5 font-medium">Part Number</th>
+                              <th className="px-3 py-2.5 font-medium">Serial No</th>
+                              <th className="px-3 py-2.5 font-medium">Vendor</th>
+                              <th className="px-3 py-2.5 font-medium">Scanned By</th>
+                              <th className="px-3 py-2.5 font-medium text-center">Status</th>
+                              <th className="px-3 py-2.5 font-medium">Remark</th>
+                              <th className="px-3 py-2.5 font-medium text-right">Scan Time</th>
                             </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60 font-mono">
+                            {gatePassScans[gp.id] && gatePassScans[gp.id].length > 0 ? (
+                              gatePassScans[gp.id].map((s: any, idx: number) => {
+                                const isReject = s.status === 'reject' || s.remark?.toLowerCase().includes('duplicate');
+                                return (
+                                  <tr
+                                    key={s.id || idx}
+                                    className={`transition-colors ${
+                                      isReject
+                                        ? 'bg-red-950/30 text-red-200 hover:bg-red-950/50'
+                                        : 'hover:bg-slate-800/20'
+                                    }`}
+                                  >
+                                    <td className="px-3 py-2 text-center text-slate-500">{idx + 1}</td>
+                                    <td className="px-3 py-2 font-mono text-[11px] text-teal-300 break-all max-w-xs">
+                                      {s.scanned_label || s.raw_scan_text || s.serial_number || '—'}
+                                    </td>
+                                    <td className="px-3 py-2 font-bold text-white tracking-wider">
+                                      {s.part_number}
+                                    </td>
+                                    <td className="px-3 py-2 text-slate-300">{s.serial_number}</td>
+                                    <td className="px-3 py-2 text-slate-400">{s.vendor_code || '—'}</td>
+                                    <td className="px-3 py-2 text-slate-300">
+                                      {s.username ? `@${s.username}` : (s.user_id ? `User #${s.user_id}` : '—')}
+                                    </td>
+                                    <td className="px-3 py-2 text-center">
+                                      <span
+                                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                          isReject
+                                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                            : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                        }`}
+                                      >
+                                        {s.status === 'reject' ? 'REJECT' : 'SUCCESS'}
+                                      </span>
+                                    </td>
+                                    <td className={`px-3 py-2 text-[11px] ${isReject ? 'text-red-400 font-bold' : 'text-slate-400'}`}>
+                                      {s.remark || (s.status === 'reject' ? 'duplicate scan' : 'verified')}
+                                    </td>
+                                    <td className="px-3 py-2 text-right text-slate-400 text-[11px]">
+                                      {s.scanned_at ? new Date(s.scanned_at).toLocaleString('en-GB') : '—'}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            ) : (
+                              <tr>
+                                <td colSpan={9} className="px-4 py-3 text-center text-slate-500">
+                                  No scanned barcode labels found for this gate pass.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

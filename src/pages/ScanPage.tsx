@@ -36,6 +36,7 @@ interface LastScanResult {
   partSlNo?: string;
   dispatchDate?: string | null;
   format?: string;
+  rawScanText?: string;
   time: string;
 }
 
@@ -166,6 +167,7 @@ export default function ScanPage() {
         partSlNo: parsed?.partSlNo,
         dispatchDate: parsed?.dispatchDate,
         format: parsed?.format,
+        rawScanText: text,
         time: new Date().toLocaleTimeString(),
       };
       setLastScan(successResult);
@@ -175,10 +177,15 @@ export default function ScanPage() {
     } catch (err: unknown) {
       if (soundEnabled) playBeep(false);
 
-      const errMsg = err instanceof Error ? err.message : 'Scan verification failed';
+      const rawErrMsg = err instanceof Error ? err.message : 'Scan verification failed';
+      const isDup = rawErrMsg.toLowerCase().includes('duplicate');
+      const errMsg = isDup
+        ? 'Duplicate scan detected — recorded as rejected (remark: duplicate scan)'
+        : rawErrMsg;
       const failResult: LastScanResult = {
         success: false,
         message: errMsg,
+        rawScanText: text,
         time: new Date().toLocaleTimeString(),
       };
       setLastScan(failResult);
@@ -444,6 +451,12 @@ export default function ScanPage() {
                 <span className="text-[11px] opacity-75 font-mono">{lastScan.time}</span>
               </div>
               <p className="text-slate-300">{lastScan.message}</p>
+              {lastScan.rawScanText && (
+                <div className="text-[11px] font-mono text-teal-300/90 bg-slate-900/80 px-2.5 py-1 rounded-md border border-slate-700/60 break-all">
+                  <span className="text-slate-400 font-sans">Scanned Label: </span>
+                  <span className="font-semibold text-white">{lastScan.rawScanText}</span>
+                </div>
+              )}
               {lastScan.success && (
                 <div className="flex flex-wrap items-center gap-3 text-[11px] pt-1 font-mono">
                   <span>Part: <strong className="text-teal-300">{lastScan.partNo}</strong></span>

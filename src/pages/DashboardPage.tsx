@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../utils/api';
 import { useSocket } from '../hooks/useSocket';
+import * as XLSX from 'xlsx-js-style';
+import { toast } from 'sonner';
 import {
   ClipboardList,
   ScanLine,
@@ -12,6 +14,8 @@ import {
   ArrowRight,
   AlertTriangle,
   Truck,
+  Download,
+  AlertOctagon,
 } from 'lucide-react';
 
 interface SummaryData {
@@ -27,10 +31,16 @@ interface SummaryData {
 interface RecentScan {
   id: number;
   part_number: string;
-  vendor_code: string;
+  vendor_code: string | null;
   serial_number: string;
-  format: string;
+  format: string | null;
   scanned_at: string;
+  user_name?: string | null;
+  username?: string | null;
+  status?: string | null;
+  remark?: string | null;
+  raw_scan_text?: string | null;
+  scanned_label?: string | null;
 }
 
 export default function DashboardPage() {
@@ -56,12 +66,94 @@ export default function DashboardPage() {
         setSummary(sumRes);
       }
       if (Array.isArray(logsRes)) {
-        setRecentScans(logsRes.slice(0, 8));
+        setRecentScans(logsRes.slice(0, 15));
       }
     } catch (err) {
       console.error('Error loading dashboard data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleExportScanReport = async () => {
+    try {
+      const logs = await api.get('/api/scan/logs');
+      if (!Array.isArray(logs) || logs.length === 0) {
+        toast.error('No scan records to export');
+        return;
+      }
+      const exportData = logs.map((s: RecentScan, idx: number) => ({
+        'SR No': idx + 1,
+        'Scanned Label (Barcode Text)': s.scanned_label || s.raw_scan_text || s.serial_number || '—',
+        'Scan Time': s.scanned_at ? new Date(s.scanned_at).toLocaleString('en-GB') : '',
+        'Part Number': s.part_number,
+        'Serial Number': s.serial_number,
+        'Vendor Code': s.vendor_code || '—',
+        'Scanned By': s.username ? `@${s.username} (${s.user_name || ''})` : '—',
+        'Status': s.status === 'reject' ? 'REJECT' : 'SUCCESS',
+        'Remark': s.remark || (s.status === 'reject' ? 'duplicate scan' : 'verified'),
+        'Format': s.format || 'F1',
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const totalCols = Object.keys(exportData[0] || {}).length;
+
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 8 },  // SR No
+        { wch: 40 }, // Scanned Label
+        { wch: 22 }, // Scan Time
+        { wch: 18 }, // Part Number
+        { wch: 18 }, // Serial Number
+        { wch: 14 }, // Vendor Code
+        { wch: 24 }, // Scanned By
+        { wch: 14 }, // Status
+        { wch: 20 }, // Remark
+        { wch: 12 }, // Format
+      ];
+
+      // Header styling
+      for (let c = 0; c < totalCols; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 0, c });
+        if (ws[addr]) {
+          ws[addr].s = {
+            fill: { fgColor: { rgb: '0F766E' } },
+            font: { color: { rgb: 'FFFFFF' }, bold: true },
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        }
+      }
+
+      // Red background for duplicate / rejected scans
+      exportData.forEach((row: any, rIdx: number) => {
+        const isDuplicate = row.Status === 'REJECT' || row.Remark?.toLowerCase().includes('duplicate');
+        if (isDuplicate) {
+          for (let c = 0; c < totalCols; c++) {
+            const addr = XLSX.utils.encode_cell({ r: rIdx + 1, c });
+            if (ws[addr]) {
+              ws[addr].s = {
+                fill: { fgColor: { rgb: 'FFC7CE' } }, // Soft red fill
+                font: { color: { rgb: '9C0006' }, bold: true }, // Dark red text
+                border: {
+                  top: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                  bottom: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                  left: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                  right: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                },
+              };
+            }
+          }
+        }
+      });
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Scanned_Labels_Report');
+      const today = new Date().toISOString().split('T')[0];
+      XLSX.writeFile(wb, `RSB_Scan_Report_${today}.xlsx`);
+      toast.success('Scan report exported with scanned labels and duplicate highlights!');
+    } catch (err) {
+      console.error('Export error:', err);
+      toast.error('Failed to export scan report');
     }
   };
 
@@ -222,17 +314,31 @@ export default function DashboardPage() {
 
         {/* Recent Scans Activity */}
         <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm sm:text-base font-semibold text-white flex items-center gap-2">
-              <ScanLine className="w-5 h-5 text-teal-400" />
-              Live Scan Activity
-            </h2>
-            <Link
-              to="/scan"
-              className="text-xs text-teal-400 hover:text-teal-300 font-medium inline-flex items-center gap-1"
-            >
-              Open Scanner <ArrowRight className="w-3 h-3" />
-            </Link>
+          <div className="flex flex-wrap items-center justify-between gap-2.5 mb-4">
+            <div>
+              <h2 className="text-sm sm:text-base font-semibold text-white flex items-center gap-2">
+                <ScanLine className="w-5 h-5 text-teal-400" />
+                Live Scan Activity
+              </h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">Real-time scan logs, user attempts & status</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExportScanReport}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/40 text-xs font-semibold transition-all cursor-pointer"
+                title="Export Scan Report to Excel (with Red background for duplicates)"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export Scans
+              </button>
+              <Link
+                to="/scan"
+                className="text-xs text-teal-400 hover:text-teal-300 font-medium inline-flex items-center gap-1"
+              >
+                Open Scanner <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
           </div>
 
           {loading ? (
@@ -244,35 +350,69 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="overflow-x-auto -mx-1 sm:mx-0">
-              <table className="w-full text-left text-xs min-w-[460px]">
+              <table className="w-full text-left text-xs min-w-[560px]">
                 <thead>
-                  <tr className="border-b border-slate-800 text-slate-400">
+                  <tr className="border-b border-slate-800 text-slate-400 whitespace-nowrap">
                     <th className="pb-2 font-medium">Part No</th>
-                    <th className="pb-2 font-medium">Vendor</th>
                     <th className="pb-2 font-medium">Serial No</th>
-                    <th className="pb-2 font-medium">Format</th>
+                    <th className="pb-2 font-medium">Scanned By</th>
+                    <th className="pb-2 font-medium">Status / Remark</th>
                     <th className="pb-2 font-medium text-right">Time</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {recentScans.map((scan) => (
-                    <tr key={scan.id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="py-2.5 font-semibold text-teal-400">{scan.part_number}</td>
-                      <td className="py-2.5 text-slate-300">{scan.vendor_code || '—'}</td>
-                      <td className="py-2.5 font-mono text-slate-400">{scan.serial_number}</td>
-                      <td className="py-2.5">
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
-                          {scan.format || 'F1'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 text-right text-slate-500">
-                        {new Date(scan.scanned_at).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </td>
-                    </tr>
-                  ))}
+                  {recentScans.map((scan) => {
+                    const isReject = scan.status === 'reject' || scan.remark?.toLowerCase().includes('duplicate');
+                    return (
+                      <tr
+                        key={scan.id}
+                        className={`transition-colors ${
+                          isReject
+                            ? 'bg-red-950/40 hover:bg-red-950/60 border-l-2 border-red-500 text-red-200'
+                            : 'hover:bg-slate-800/40'
+                        }`}
+                      >
+                        <td className="py-2.5 font-semibold text-teal-400 font-mono">
+                          {scan.part_number}
+                        </td>
+                        <td className="py-2.5 font-mono text-slate-300">{scan.serial_number}</td>
+                        <td className="py-2.5 text-slate-300">
+                          {scan.username ? (
+                            <span className="font-semibold text-white">
+                              @{scan.username}
+                              {scan.user_name ? (
+                                <span className="text-[11px] text-slate-400 block font-normal">
+                                  {scan.user_name}
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">—</span>
+                          )}
+                        </td>
+                        <td className="py-2.5">
+                          {isReject ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/40">
+                              <AlertOctagon className="w-3 h-3" />
+                              REJECT: {scan.remark || 'duplicate scan'}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <CheckCircle2 className="w-3 h-3" />
+                              SUCCESS
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 text-right text-slate-400 font-mono text-[11px]">
+                          {new Date(scan.scanned_at).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                          })}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

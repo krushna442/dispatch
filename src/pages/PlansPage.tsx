@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../utils/api';
 import { useSocket } from '../hooks/useSocket';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { toast } from 'sonner';
 import {
   Upload,
@@ -199,32 +199,190 @@ export default function PlansPage() {
     toast.info('Template downloaded');
   };
 
-  // Export Scanned / Plan Data
-  const handleExportScannedData = () => {
+  // Export Scanned / Plan Data (with multi-sheet Excel and Red Background for duplicate scans)
+  const handleExportScannedData = async () => {
     if (plans.length === 0) {
       toast.error('No records to export');
       return;
     }
-    const exportData = plans.map((p, idx) => {
-      const pct = p.quantity > 0 ? Math.round((p.scanned_quantity / p.quantity) * 100) : 0;
-      return {
-        'SR No': idx + 1,
-        'Part Number': p.part_number,
-        Quantity: p.quantity,
-        'Balance Quantity': p.balance_quantity,
-        'Scanned Quantity': p.scanned_quantity,
-        Status: p.status === 'completed' ? 'Completed' : 'Pending',
-        'Completed %': `${pct}%`,
-        'Plan Date': p.plan_date ? p.plan_date.slice(0, 10) : '',
-        'Schedule Date': p.schedule_date ? p.schedule_date.slice(0, 10) : '',
-        'Gate Pass': p.gate_pass_number || 'None',
-      };
-    });
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Dispatch_Data');
-    XLSX.writeFile(wb, `RSB_Dispatch_Data_${dateFilter}.xlsx`);
-    toast.success('Data exported successfully');
+
+    try {
+      toast.info('Generating dispatch report with scanned labels...');
+
+      // 1. Fetch scan logs (all logs, then match with current date or displayed plans)
+      const scanLogsAll = await api.get('/api/scan/logs').catch(() => []);
+      const currentPlanPartNumbers = new Set(plans.map((p) => p.part_number));
+      const currentPlanIds = new Set(plans.map((p) => p.id));
+
+      const scanLogs = (Array.isArray(scanLogsAll) ? scanLogsAll : []).filter((s: any) => {
+        const scanDate = s.scan_date ? String(s.scan_date).slice(0, 10) : '';
+        const scannedAt = s.scanned_at ? String(s.scanned_at).slice(0, 10) : '';
+        const dateMatch = scanDate === dateFilter || scannedAt === dateFilter;
+        const planMatch =
+          (s.plan_id && currentPlanIds.has(s.plan_id)) ||
+          currentPlanPartNumbers.has(s.part_number);
+        return dateMatch || planMatch;
+      });
+
+      // 2. Build Detailed Scanned Labels Sheet (SHEET 1 — opens first in Excel)
+      const exportScanData =
+        scanLogs.length > 0
+          ? scanLogs.map((s: any, idx: number) => ({
+              'SR No': idx + 1,
+              'Scanned Label (Barcode Text)':
+                s.scanned_label || s.raw_scan_text || s.serial_number || '—',
+              'Part Number': s.part_number,
+              'Serial Number': s.serial_number,
+              'Vendor Code': s.vendor_code || '—',
+              'Scanned By': s.username
+                ? `@${s.username} (${s.user_name || ''})`
+                : s.user_id
+                ? `User #${s.user_id}`
+                : '—',
+              'Status': s.status === 'reject' ? 'REJECT' : 'SUCCESS',
+              'Remark':
+                s.remark ||
+                (s.status === 'reject' ? 'duplicate scan' : 'verified'),
+              'Scan Date & Time': s.scanned_at
+                ? new Date(s.scanned_at).toLocaleString('en-GB')
+                : '',
+            }))
+          : [
+              {
+                'SR No': 1,
+                'Scanned Label (Barcode Text)':
+                  'No scans recorded yet for selected date/plans',
+                'Part Number': '—',
+                'Serial Number': '—',
+                'Vendor Code': '—',
+                'Scanned By': '—',
+                'Status': '—',
+                'Remark': '—',
+                'Scan Date & Time': '—',
+              },
+            ];
+
+      const wsScans = XLSX.utils.json_to_sheet(exportScanData);
+      const scanCols = Object.keys(exportScanData[0] || {}).length;
+
+      // Column widths for Scanned Labels
+      wsScans['!cols'] = [
+        { wch: 8 },  // SR No
+        { wch: 40 }, // Scanned Label
+        { wch: 18 }, // Part Number
+        { wch: 18 }, // Serial Number
+        { wch: 14 }, // Vendor Code
+        { wch: 24 }, // Scanned By
+        { wch: 14 }, // Status
+        { wch: 20 }, // Remark
+        { wch: 22 }, // Scan Date & Time
+      ];
+
+      // Header style
+      for (let c = 0; c < scanCols; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 0, c });
+        if (wsScans[addr]) {
+          wsScans[addr].s = {
+            fill: { fgColor: { rgb: '0F766E' } },
+            font: { color: { rgb: 'FFFFFF' }, bold: true },
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        }
+      }
+
+      // Highlight every duplicate/reject scan row with RED BACKGROUND
+      exportScanData.forEach((row: any, rIdx: number) => {
+        const isDuplicate =
+          row.Status === 'REJECT' ||
+          row.Remark?.toLowerCase().includes('duplicate');
+        if (isDuplicate) {
+          for (let c = 0; c < scanCols; c++) {
+            const addr = XLSX.utils.encode_cell({ r: rIdx + 1, c });
+            if (wsScans[addr]) {
+              wsScans[addr].s = {
+                fill: { fgColor: { rgb: 'FFC7CE' } }, // Soft red fill
+                font: { color: { rgb: '9C0006' }, bold: true }, // Dark red text
+                border: {
+                  top: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                  bottom: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                  left: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                  right: { style: 'thin', color: { rgb: 'E0B4B4' } },
+                },
+              };
+            }
+          }
+        }
+      });
+
+      // 3. Build Plan Summary Sheet (SHEET 2)
+      const exportPlanData = plans.map((p, idx) => {
+        const pct =
+          p.quantity > 0
+            ? Math.round((p.scanned_quantity / p.quantity) * 100)
+            : 0;
+        const duplicateCount = Array.isArray(scanLogs)
+          ? scanLogs.filter(
+              (s: any) =>
+                s.part_number === p.part_number &&
+                (s.status === 'reject' ||
+                  s.remark?.toLowerCase().includes('duplicate'))
+            ).length
+          : 0;
+
+        return {
+          'SR No': idx + 1,
+          'Part Number': p.part_number,
+          'Quantity': p.quantity,
+          'Balance Quantity': p.balance_quantity,
+          'Scanned Quantity': p.scanned_quantity,
+          'Duplicate Attempts': duplicateCount,
+          'Status': p.status === 'completed' ? 'Completed' : 'Pending',
+          'Completed %': `${pct}%`,
+          'Plan Date': p.plan_date ? p.plan_date.slice(0, 10) : '',
+          'Schedule Date': p.schedule_date ? p.schedule_date.slice(0, 10) : '',
+          'Gate Pass': p.gate_pass_number || 'None',
+        };
+      });
+
+      const wsPlans = XLSX.utils.json_to_sheet(exportPlanData);
+      const planCols = Object.keys(exportPlanData[0] || {}).length;
+
+      // Plan summary header styling
+      for (let c = 0; c < planCols; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 0, c });
+        if (wsPlans[addr]) {
+          wsPlans[addr].s = {
+            fill: { fgColor: { rgb: '0F766E' } },
+            font: { color: { rgb: 'FFFFFF' }, bold: true },
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        }
+      }
+
+      // If any part has duplicate attempts, highlight Duplicate Attempts cell with soft red
+      exportPlanData.forEach((row, rIdx) => {
+        if (row['Duplicate Attempts'] > 0) {
+          const dupCellAddr = XLSX.utils.encode_cell({ r: rIdx + 1, c: 5 });
+          if (wsPlans[dupCellAddr]) {
+            wsPlans[dupCellAddr].s = {
+              fill: { fgColor: { rgb: 'FFC7CE' } },
+              font: { color: { rgb: '9C0006' }, bold: true },
+            };
+          }
+        }
+      });
+
+      const wb = XLSX.utils.book_new();
+      // Put Scanned_Labels FIRST so it opens immediately when user opens Excel
+      XLSX.utils.book_append_sheet(wb, wsScans, 'Scanned_Labels');
+      XLSX.utils.book_append_sheet(wb, wsPlans, 'Dispatch_Plan_Summary');
+
+      XLSX.writeFile(wb, `RSB_Dispatch_Data_${dateFilter}.xlsx`);
+      toast.success('Data exported successfully with scanned labels and duplicate highlights!');
+    } catch (err: unknown) {
+      console.error('Export error:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to export data');
+    }
   };
 
   // Delete Plan Entry
