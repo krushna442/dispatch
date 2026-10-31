@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 import {
   Upload,
   Download,
-  FileSpreadsheet,
   Save,
   Pencil,
   Trash2,
@@ -38,9 +37,9 @@ interface DespatchPlan {
 export default function PlansPage() {
   const [plans, setPlans] = useState<DespatchPlan[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dateFilter, setDateFilter] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
+  const todayStr = new Date().toISOString().split('T')[0];
+  const [startDate, setStartDate] = useState<string>(todayStr);
+  const [endDate, setEndDate] = useState<string>(todayStr);
   const [searchQuery, setSearchQuery] = useState('');
   const [pageSize, setPageSize] = useState<number>(25);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -50,9 +49,7 @@ export default function PlansPage() {
   // Manual Add Form State
   const [newPartNumber, setNewPartNumber] = useState('');
   const [newQuantity, setNewQuantity] = useState('');
-  const [newScheduleDate, setNewScheduleDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
+  const [newScheduleDate, setNewScheduleDate] = useState(todayStr);
   const [isSaving, setIsSaving] = useState(false);
 
   // Edit Modal State
@@ -67,7 +64,7 @@ export default function PlansPage() {
   const fetchPlans = async () => {
     setLoading(true);
     try {
-      const data = await api.get(`/api/plans?date=${dateFilter}`);
+      const data = await api.get(`/api/plans?startDate=${startDate}&endDate=${endDate}`);
       if (Array.isArray(data)) {
         setPlans(data);
       }
@@ -80,7 +77,28 @@ export default function PlansPage() {
 
   useEffect(() => {
     fetchPlans();
-  }, [dateFilter]);
+  }, [startDate, endDate]);
+
+  const setQuickRange = (type: 'today' | 'yesterday' | 'week' | 'month') => {
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    if (type === 'today') {
+      setStartDate(today);
+      setEndDate(today);
+    } else if (type === 'yesterday') {
+      const y = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      setStartDate(y);
+      setEndDate(y);
+    } else if (type === 'week') {
+      const w = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      setStartDate(w);
+      setEndDate(today);
+    } else if (type === 'month') {
+      const m = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      setStartDate(m);
+      setEndDate(today);
+    }
+  };
 
   // Real-time updates
   useSocket('despatch:plans-changed', () => {
@@ -112,7 +130,7 @@ export default function PlansPage() {
         part_number: newPartNumber.trim().toUpperCase(),
         quantity: qty,
         schedule_date: newScheduleDate || null,
-        plan_date: dateFilter,
+        plan_date: startDate || todayStr,
       });
       toast.success(`Part ${newPartNumber.trim().toUpperCase()} added successfully`);
       setNewPartNumber('');
@@ -186,11 +204,11 @@ export default function PlansPage() {
   // Download Dummy Excel Template
   const handleDownloadDummyExcel = () => {
     const dummyData = [
-      { 'Part Number': 'FC373500', Quantity: 40, 'Schedule Date': dateFilter },
-      { 'Part Number': 'FEA56800', Quantity: 40, 'Schedule Date': dateFilter },
-      { 'Part Number': 'FC319400', Quantity: 2, 'Schedule Date': dateFilter },
-      { 'Part Number': 'FC320300', Quantity: 7, 'Schedule Date': dateFilter },
-      { 'Part Number': 'FEA23500', Quantity: 4, 'Schedule Date': dateFilter },
+      { 'Part Number': 'FC373500', Quantity: 40, 'Schedule Date': endDate || todayStr },
+      { 'Part Number': 'FEA56800', Quantity: 40, 'Schedule Date': endDate || todayStr },
+      { 'Part Number': 'FC319400', Quantity: 2, 'Schedule Date': endDate || todayStr },
+      { 'Part Number': 'FC320300', Quantity: 7, 'Schedule Date': endDate || todayStr },
+      { 'Part Number': 'FEA23500', Quantity: 4, 'Schedule Date': endDate || todayStr },
     ];
     const ws = XLSX.utils.json_to_sheet(dummyData);
     const wb = XLSX.utils.book_new();
@@ -209,15 +227,17 @@ export default function PlansPage() {
     try {
       toast.info('Generating dispatch report with scanned labels...');
 
-      // 1. Fetch scan logs (all logs, then match with current date or displayed plans)
-      const scanLogsAll = await api.get('/api/scan/logs').catch(() => []);
+      // 1. Fetch scan logs for the date range
+      const scanLogsAll = await api.get(`/api/scan/logs?startDate=${startDate}&endDate=${endDate}`).catch(() => []);
       const currentPlanPartNumbers = new Set(plans.map((p) => p.part_number));
       const currentPlanIds = new Set(plans.map((p) => p.id));
 
       const scanLogs = (Array.isArray(scanLogsAll) ? scanLogsAll : []).filter((s: any) => {
         const scanDate = s.scan_date ? String(s.scan_date).slice(0, 10) : '';
         const scannedAt = s.scanned_at ? String(s.scanned_at).slice(0, 10) : '';
-        const dateMatch = scanDate === dateFilter || scannedAt === dateFilter;
+        const dateMatch =
+          (scanDate >= startDate && scanDate <= endDate) ||
+          (scannedAt >= startDate && scannedAt <= endDate);
         const planMatch =
           (s.plan_id && currentPlanIds.has(s.plan_id)) ||
           currentPlanPartNumbers.has(s.part_number);
@@ -529,8 +549,9 @@ export default function PlansPage() {
       XLSX.utils.book_append_sheet(wb, wsScans, 'Scanned_Labels');
       XLSX.utils.book_append_sheet(wb, wsPlans, 'Dispatch_Plan_Summary');
 
-      XLSX.writeFile(wb, `RSB_Dispatch_Data_${dateFilter}.xlsx`);
-      toast.success('Data exported successfully with scanned labels and duplicate highlights!');
+      const dateLabel = startDate === endDate ? startDate : `${startDate}_to_${endDate}`;
+      XLSX.writeFile(wb, `RSB_Dispatch_Plan_${dateLabel}.xlsx`);
+      toast.success(`Data exported successfully (${dateLabel}) with scanned labels and duplicate highlights!`);
     } catch (err: unknown) {
       console.error('Export error:', err);
       toast.error(err instanceof Error ? err.message : 'Failed to export data');
@@ -553,7 +574,7 @@ export default function PlansPage() {
   const openEdit = (plan: DespatchPlan) => {
     setEditingPlan(plan);
     setEditQty(String(plan.quantity));
-    setEditDate(plan.schedule_date ? plan.schedule_date.slice(0, 10) : dateFilter);
+    setEditDate(plan.schedule_date ? plan.schedule_date.slice(0, 10) : endDate || todayStr);
   };
 
   // Save Edit
@@ -644,33 +665,84 @@ export default function PlansPage() {
               <button
                 type="button"
                 onClick={handleExportScannedData}
-                className="inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/40 text-xs sm:text-sm font-semibold transition-all cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs sm:text-sm font-semibold transition-all cursor-pointer shadow-sm"
+                title="Export dispatch plans and scanned labels to Excel"
               >
-                <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                <span className="truncate sm:inline hidden">Export Scanned Data</span>
-                <span className="truncate sm:hidden inline">Export Data</span>
+                <Download className="w-4 h-4 shrink-0" />
+                <span className="truncate">Export Excel</span>
               </button>
             </div>
 
-            {/* Search By Date Input */}
-            <div className="flex items-center justify-between sm:justify-start gap-2 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs sm:text-sm w-full sm:w-auto">
-              <div className="flex items-center gap-2 shrink-0">
-                <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-                <span className="text-[11px] sm:text-xs text-slate-400 font-medium whitespace-nowrap">Date:</span>
+            {/* Date Range Selector */}
+            <div className="flex flex-wrap items-center gap-2 bg-slate-800/90 border border-slate-700/80 rounded-xl p-1.5 text-xs w-full sm:w-auto">
+              <div className="flex items-center gap-1.5 px-2 text-slate-400 shrink-0 font-medium">
+                <Calendar className="w-4 h-4 text-teal-400 shrink-0" />
+                <span className="text-[11px] sm:text-xs text-slate-400 font-medium">Range:</span>
               </div>
-              <input
-                type="date"
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
-                className="bg-transparent border-none text-white text-xs sm:text-sm font-medium focus:outline-none cursor-pointer flex-1 sm:flex-none text-center sm:text-left min-w-0"
-              />
+
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] text-slate-400 font-medium">From</span>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-white text-xs font-mono focus:outline-none focus:border-teal-400 cursor-pointer"
+                />
+              </div>
+
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] text-slate-400 font-medium">To</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-white text-xs font-mono focus:outline-none focus:border-teal-400 cursor-pointer"
+                />
+              </div>
+
+              {/* Quick Range Presets */}
+              <div className="hidden lg:flex items-center gap-1 pl-1 border-l border-slate-700/70">
+                <button
+                  type="button"
+                  onClick={() => setQuickRange('today')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                    startDate === todayStr && endDate === todayStr
+                      ? 'bg-teal-600 text-white font-semibold'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                  }`}
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQuickRange('yesterday')}
+                  className="px-2 py-0.5 rounded text-[11px] font-medium text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                >
+                  Yesterday
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQuickRange('week')}
+                  className="px-2 py-0.5 rounded text-[11px] font-medium text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                >
+                  7 Days
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQuickRange('month')}
+                  className="px-2 py-0.5 rounded text-[11px] font-medium text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                >
+                  This Month
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={fetchPlans}
-                title="Refresh"
-                className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-700 transition-colors shrink-0"
+                title="Refresh Records"
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-700 transition-colors shrink-0 ml-auto sm:ml-0"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-teal-400' : ''}`} />
               </button>
             </div>
           </div>

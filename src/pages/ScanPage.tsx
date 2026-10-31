@@ -3,6 +3,7 @@ import { api } from '../utils/api';
 import { useSocket } from '../hooks/useSocket';
 import { useAuth } from '../context/AuthContext';
 import { Html5Qrcode } from 'html5-qrcode';
+import * as XLSX from 'xlsx-js-style';
 import { toast } from 'sonner';
 import {
   Camera,
@@ -15,6 +16,7 @@ import {
   Search,
   Send,
   Loader2,
+  Download,
 } from 'lucide-react';
 
 interface DespatchPlan {
@@ -342,6 +344,215 @@ export default function ScanPage() {
     return plans.filter((p) => p.balance_quantity === 0 && !p.gate_pass_number).length;
   }, [plans]);
 
+  // Export Today's Scanned Barcodes & Plan Progress to Excel
+  const handleExportExcel = async () => {
+    try {
+      toast.info('Generating scan report Excel...');
+      const today = new Date().toISOString().split('T')[0];
+
+      // 1. Fetch scan logs for today
+      const scanLogsAll = await api.get(`/api/scan/logs?date=${today}`).catch(() => []);
+      const logsArray = Array.isArray(scanLogsAll) ? scanLogsAll : [];
+
+      // Group scans by part_number
+      const scansByPart = new Map<string, any[]>();
+      for (const s of logsArray) {
+        const pNo = (s.part_number || '').trim().toUpperCase();
+        if (!scansByPart.has(pNo)) scansByPart.set(pNo, []);
+        scansByPart.get(pNo)!.push(s);
+      }
+
+      // Build Sheet 1: Scanned_Labels with merged SR No & Part Number
+      const headers = [
+        'SR No',
+        'Part Number',
+        'Scanned Label (Barcode Text)',
+        'Serial Number',
+        'Vendor Code',
+        'Scanned By',
+        'Status',
+        'Remark',
+        'Scanned Time',
+      ];
+
+      const scanSheetRows: any[][] = [];
+      const merges: XLSX.Range[] = [];
+      let currentRow = 0;
+      let srCounter = 1;
+
+      // Target parts from today's plans
+      const planParts = plans.map((p) => p.part_number.trim().toUpperCase());
+      const allPartNumbers = Array.from(new Set([...planParts, ...Array.from(scansByPart.keys())]));
+
+      for (const pNo of allPartNumbers) {
+        const partScans = scansByPart.get(pNo) || [];
+        if (partScans.length === 0) {
+          scanSheetRows.push([
+            srCounter,
+            pNo,
+            'No scans recorded',
+            '—',
+            user?.vendor_code || '—',
+            '—',
+            'PENDING',
+            'Awaiting scan',
+            '—',
+          ]);
+          currentRow++;
+          srCounter++;
+        } else {
+          const startR = currentRow;
+          partScans.forEach((s) => {
+            const isDup =
+              s.status === 'reject' ||
+              (s.remark && s.remark.toLowerCase().includes('duplicate'));
+            const labelText = s.scanned_label || s.raw_scan_text || s.serial_number || '—';
+            const statusText = isDup ? 'REJECT (duplicate)' : 'VERIFIED';
+            const timeText = s.scanned_at ? new Date(s.scanned_at).toLocaleTimeString('en-GB') : '—';
+            const byText = s.username ? `@${s.username}` : (s.user_name || '—');
+
+            scanSheetRows.push([
+              srCounter,
+              pNo,
+              labelText,
+              s.serial_number || '—',
+              s.vendor_code || '—',
+              byText,
+              statusText,
+              s.remark || (isDup ? 'duplicate scan' : 'verified'),
+              timeText,
+            ]);
+            currentRow++;
+          });
+
+          if (partScans.length > 1) {
+            merges.push({ s: { r: startR, c: 0 }, e: { r: currentRow - 1, c: 0 } });
+            merges.push({ s: { r: startR, c: 1 }, e: { r: currentRow - 1, c: 1 } });
+          }
+          srCounter++;
+        }
+      }
+
+      const wsScans = XLSX.utils.aoa_to_sheet([headers, ...scanSheetRows]);
+      if (merges.length > 0) {
+        wsScans['!merges'] = merges.map((m) => ({
+          s: { r: m.s.r + 1, c: m.s.c },
+          e: { r: m.e.r + 1, c: m.e.c },
+        }));
+      }
+
+      wsScans['!cols'] = [
+        { wch: 8 },
+        { wch: 18 },
+        { wch: 38 },
+        { wch: 22 },
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 18 },
+        { wch: 16 },
+      ];
+
+      // Header style
+      for (let c = 0; c < headers.length; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 0, c });
+        if (wsScans[addr]) {
+          wsScans[addr].s = {
+            fill: { fgColor: { rgb: '0F766E' } },
+            font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 11 },
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        }
+      }
+
+      // Style rows & soft red highlight for duplicate scans
+      scanSheetRows.forEach((row, rIdx) => {
+        const status = String(row[6] || '');
+        const isDup = status.includes('REJECT');
+        for (let c = 0; c < headers.length; c++) {
+          const addr = XLSX.utils.encode_cell({ r: rIdx + 1, c });
+          if (wsScans[addr]) {
+            if (isDup) {
+              wsScans[addr].s = {
+                fill: { fgColor: { rgb: 'FFC7CE' } },
+                font: { color: { rgb: '9C0006' }, bold: true, sz: 10 },
+                alignment: { vertical: 'center', horizontal: c === 2 ? 'left' : 'center' },
+              };
+            } else {
+              wsScans[addr].s = {
+                font: { color: { rgb: '1E293B' }, sz: 10 },
+                alignment: { vertical: 'center', horizontal: c === 2 ? 'left' : 'center' },
+              };
+            }
+          }
+        }
+      });
+
+      // Sheet 2: Scan_Progress_Summary (all plans for today)
+      const planSummaryRows: Record<string, any>[] = plans.map((p, idx) => {
+        const total = Number(p.quantity) || 0;
+        const bal = Number(p.balance_quantity) || 0;
+        const scanned = Number(p.scanned_quantity ?? (total - bal));
+        const pct = total > 0 ? Math.min(100, Math.round((scanned / total) * 100)) : 0;
+        return {
+          'SR No': idx + 1,
+          'Part Number': p.part_number,
+          'Target Quantity': total,
+          'Scanned Quantity': scanned,
+          'Balance Quantity': bal,
+          'Status': bal === 0 ? 'Completed' : 'Pending',
+          'Completion %': `${pct}%`,
+          'Gate Pass': p.gate_pass_number || 'None',
+        };
+      });
+
+      // Add Totals row
+      planSummaryRows.push({
+        'SR No': '',
+        'Part Number': 'TOTAL',
+        'Target Quantity': totals.totalQty,
+        'Scanned Quantity': totals.totalQty - totals.totalBal,
+        'Balance Quantity': totals.totalBal,
+        'Status': totals.totalBal === 0 ? 'All Completed' : 'In Progress',
+        'Completion %': totals.totalQty > 0 ? `${Math.round(((totals.totalQty - totals.totalBal) / totals.totalQty) * 100)}%` : '0%',
+        'Gate Pass': '',
+      });
+
+      const wsSummary = XLSX.utils.json_to_sheet(planSummaryRows);
+      wsSummary['!cols'] = [
+        { wch: 8 },
+        { wch: 20 },
+        { wch: 18 },
+        { wch: 18 },
+        { wch: 18 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 16 },
+      ];
+
+      for (let c = 0; c < 8; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 0, c });
+        if (wsSummary[addr]) {
+          wsSummary[addr].s = {
+            fill: { fgColor: { rgb: '0F766E' } },
+            font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 11 },
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        }
+      }
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, wsScans, 'Scanned_Labels');
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Scan_Progress_Summary');
+
+      XLSX.writeFile(wb, `RSB_Scan_Report_${today}.xlsx`);
+      toast.success('Scan report exported successfully with scanned labels and duplicate highlights!');
+    } catch (err: unknown) {
+      console.error('Export scan report error:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to export scan report');
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Scan Bar Container — Styled matching Reference Image 2 */}
@@ -473,7 +684,7 @@ export default function ScanPage() {
       {/* Main Table Card — Styled matching Reference Image 2 */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
         {/* Table Filter Controls */}
-        <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <span>Show</span>
             <select
@@ -492,18 +703,30 @@ export default function ScanPage() {
             <span>entries</span>
           </div>
 
-          <div className="relative w-full sm:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search Part Number..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
-            />
+          <div className="flex items-center gap-2.5 w-full sm:w-auto">
+            <div className="relative flex-1 sm:w-64">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search Part Number..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold transition-all cursor-pointer shrink-0 shadow-sm hover:shadow"
+              title="Export Today's Scanned Barcodes and Plan Progress to Excel"
+            >
+              <Download className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Export Excel</span>
+            </button>
           </div>
         </div>
 
