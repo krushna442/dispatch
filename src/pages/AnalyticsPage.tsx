@@ -47,9 +47,13 @@ interface UserStat {
   id: number;
   name: string;
   username: string;
+  role?: 'admin' | 'sales' | 'operator';
+  customer_name?: string | null;
+  vendor_code?: string | null;
   total_plans: number;
   completed_plans: number;
   scans: number;
+  user_scanned_plans?: number;
   last_active: string | null;
 }
 
@@ -89,7 +93,7 @@ export default function AnalyticsPage() {
         );
       }
 
-      if (user?.role === 'admin') {
+      if (user?.role === 'admin' || user?.role === 'sales') {
         const uRes = await api.get('/api/analytics/users').catch(() => []);
         if (Array.isArray(uRes)) setUsersData(uRes);
       }
@@ -292,8 +296,8 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      {/* Admin User Performance Table */}
-      {user?.role === 'admin' && (
+      {/* Operator & Team Productivity Performance Table */}
+      {(user?.role === 'admin' || user?.role === 'sales') && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
           <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between">
             <div>
@@ -302,27 +306,28 @@ export default function AnalyticsPage() {
                 Operator Productivity & Performance
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Breakdown of plans assigned, fulfillment rates, and barcode activity per user
+                Breakdown of customer group targets, scans completed, and operator fulfillment rates
               </p>
             </div>
           </div>
 
           <div className="overflow-x-auto -mx-1 sm:mx-0">
-            <table className="w-full text-left text-xs border-collapse min-w-[620px]">
+            <table className="w-full text-left text-xs border-collapse min-w-[700px]">
               <thead>
                 <tr className="bg-slate-800/80 border-b border-slate-700 text-slate-300">
-                  <th className="px-4 py-3 font-semibold">User</th>
-                  <th className="px-4 py-3 font-semibold text-right">Total Plans</th>
+                  <th className="px-4 py-3 font-semibold">User & Role</th>
+                  <th className="px-4 py-3 font-semibold">Customer / Group</th>
+                  <th className="px-4 py-3 font-semibold text-right">Target Plans</th>
                   <th className="px-4 py-3 font-semibold text-right">Completed Plans</th>
                   <th className="px-4 py-3 font-semibold text-right">Total Scans</th>
-                  <th className="px-4 py-3 font-semibold text-center w-36">Fulfillment %</th>
+                  <th className="px-4 py-3 font-semibold text-center w-40">Fulfillment %</th>
                   <th className="px-4 py-3 font-semibold text-right">Last Active</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 font-mono">
                 {usersData.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-500 font-sans">
+                    <td colSpan={7} className="py-8 text-center text-slate-500 font-sans">
                       No operator performance records found.
                     </td>
                   </tr>
@@ -330,14 +335,42 @@ export default function AnalyticsPage() {
                   usersData.map((u) => {
                     const pct =
                       u.total_plans > 0
-                        ? Math.round((u.completed_plans / u.total_plans) * 100)
+                        ? Math.min(100, Math.round((u.completed_plans / u.total_plans) * 100))
                         : 0;
 
                     return (
                       <tr key={u.id} className="hover:bg-slate-800/30 transition-colors">
                         <td className="px-4 py-3 font-sans">
-                          <span className="font-bold text-white text-sm">{u.name}</span>
-                          <span className="text-slate-500 text-xs block">@{u.username}</span>
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <span className="font-bold text-white text-sm block">{u.name}</span>
+                              <span className="text-slate-500 text-xs block">@{u.username}</span>
+                            </div>
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border uppercase tracking-wider ${
+                                u.role === 'admin'
+                                  ? 'bg-purple-500/10 text-purple-400 border-purple-500/20'
+                                  : u.role === 'sales'
+                                  ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
+                                  : 'bg-teal-500/10 text-teal-400 border-teal-500/20'
+                              }`}
+                            >
+                              {u.role || 'operator'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 font-sans">
+                          {u.customer_name ? (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700">
+                              {u.customer_name}
+                            </span>
+                          ) : u.vendor_code ? (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700">
+                              Vendor: {u.vendor_code}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 text-xs italic">Global / Unassigned</span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right font-bold text-slate-200">
                           {u.total_plans}
@@ -349,15 +382,20 @@ export default function AnalyticsPage() {
                           {u.scans}
                         </td>
                         <td className="px-4 py-3 text-center font-sans">
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 bg-slate-800 h-2.5 rounded-full overflow-hidden">
-                              <div
-                                className="bg-gradient-to-r from-teal-500 to-emerald-400 h-full rounded-full"
-                                style={{ width: `${pct}%` }}
-                              />
+                          <div className="flex flex-col items-center gap-1">
+                            <div className="flex items-center gap-2 w-full">
+                              <div className="flex-1 bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                                <div
+                                  className="bg-gradient-to-r from-teal-500 to-emerald-400 h-full rounded-full transition-all duration-500"
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-bold text-teal-400 w-10 text-right">
+                                {pct}%
+                              </span>
                             </div>
-                            <span className="text-xs font-bold text-teal-400 w-9 text-right">
-                              {pct}%
+                            <span className="text-[10px] text-slate-500">
+                              {u.completed_plans} / {u.total_plans} completed
                             </span>
                           </div>
                         </td>
