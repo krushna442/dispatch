@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import ThemeToggle from './ThemeToggle';
 import {
   LayoutDashboard, ClipboardList, ScanLine, Truck,
   Users, BarChart3, LogOut, Menu, X, ChevronLeft, ChevronRight
@@ -220,6 +221,9 @@ export default function Layout() {
             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-teal-500/10 text-teal-400 border border-teal-500/20 shrink-0">
               {user?.role}
             </span>
+
+            {/* Dark / Light Mode Toggle */}
+            <ThemeToggle />
 
             {/* Logout button at the right corner beside user role badge */}
             <button

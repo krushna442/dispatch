@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import {
   BarChart,
   Bar,
@@ -59,6 +60,8 @@ interface UserStat {
 
 export default function AnalyticsPage() {
   const { user } = useAuth();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const [summary, setSummary] = useState<SummaryStats | null>(null);
   const [dailyData, setDailyData] = useState<DailyPoint[]>([]);
   const [partsData, setPartsData] = useState<PartPoint[]>([]);
@@ -229,12 +232,18 @@ export default function AnalyticsPage() {
                       <stop offset="95%" stopColor="#0d9488" stopOpacity={0.0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#1e293b" : "#e2e8f0"} />
                   <XAxis dataKey="date" stroke="#64748b" fontSize={11} tickLine={false} />
                   <YAxis stroke="#64748b" fontSize={11} tickLine={false} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px' }}
-                    itemStyle={{ color: '#2dd4bf', fontWeight: 'bold' }}
+                    contentStyle={{
+                      backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                      borderColor: isDark ? '#334155' : '#cbd5e1',
+                      color: isDark ? '#f8fafc' : '#0f172a',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                    }}
+                    itemStyle={{ color: '#14b8a6', fontWeight: 'bold' }}
                   />
                   <Area
                     type="monotone"
@@ -274,7 +283,7 @@ export default function AnalyticsPage() {
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={partsData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#1e293b" : "#e2e8f0"} />
                   <XAxis
                     dataKey="part_number"
                     stroke="#64748b"
@@ -285,8 +294,14 @@ export default function AnalyticsPage() {
                   />
                   <YAxis stroke="#64748b" fontSize={11} tickLine={false} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px' }}
-                    itemStyle={{ color: '#38bdf8', fontWeight: 'bold' }}
+                    contentStyle={{
+                      backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                      borderColor: isDark ? '#334155' : '#cbd5e1',
+                      color: isDark ? '#f8fafc' : '#0f172a',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                    }}
+                    itemStyle={{ color: '#0284c7', fontWeight: 'bold' }}
                   />
                   <Bar dataKey="scan_count" fill="#0284c7" radius={[4, 4, 0, 0]} />
                 </BarChart>

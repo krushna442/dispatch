@@ -19,6 +19,7 @@ body {
   background-color: var(--color-surface);
   color: #e2e8f0;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -30,4 +31,188 @@ input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+/* ==========================================================================
+   LIGHT MODE DESIGN SYSTEM
+   RSB Clean Industrial Light Theme (White / Clean Slate / RSB Teal)
+   ========================================================================== */
+html.light {
+  color-scheme: light;
+
+  /* Surface & Container Tokens */
+  --color-surface: #f8fafc;
+  --color-surface-light: #ffffff;
+  --color-surface-lighter: #e2e8f0;
+
+  /* Slate Scale Remapping for Light Mode */
+  --color-slate-950: #f8fafc; /* Main application canvas background */
+  --color-slate-900: #ffffff; /* Cards, sidebar, modal background */
+  --color-slate-800: #f8fafc; /* Input backgrounds, secondary pills, subtle panels */
+  --color-slate-700: #cbd5e1; /* Borders and dividers */
+  --color-slate-600: #64748b; /* Secondary icons, subtle text */
+  --color-slate-500: #64748b; /* Muted subtext */
+  --color-slate-400: #475569; /* Labels, secondary metadata */
+  --color-slate-300: #334155; /* Normal text */
+  --color-slate-200: #0f172a; /* Primary content & bold text */
+  --color-slate-100: #020617; /* Highest contrast headings */
+  --color-slate-50: #ffffff;
+}
+
+html.light body {
+  background-color: #f8fafc;
+  color: #1e293b;
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+html.light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Card & Container Borders in Light Mode */
+html.light .border-slate-800,
+html.light [class*="border-slate-800"] {
+  border-color: #e2e8f0;
+}
+html.light .border-slate-700,
+html.light [class*="border-slate-700"] {
+  border-color: #cbd5e1;
+}
+
+/* Header & Sidebar in Light Mode */
+html.light header {
+  background-color: rgba(255, 255, 255, 0.9);
+  border-bottom-color: #e2e8f0;
+}
+html.light aside {
+  background-color: #ffffff;
+  border-right-color: #e2e8f0;
+}
+
+/* Subtle, crisp shadows for cards in Light Mode */
+html.light .shadow-xl {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05), 0 0 0 1px rgb(0 0 0 / 0.05);
+}
+html.light .shadow-2xl {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.04), 0 0 0 1px rgb(0 0 0 / 0.05);
+}
+html.light .shadow-md {
+  box-shadow: 0 2px 4px -1px rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+}
+
+/* General Text Remapping in Light Mode */
+html.light .text-white {
+  color: #0f172a;
+}
+
+/* KEEP WHITE TEXT on all colored buttons and filled badges */
+html.light button.text-white,
+html.light button .text-white,
+html.light button[class*="bg-teal"],
+html.light button[class*="bg-emerald"],
+html.light button[class*="from-teal"],
+html.light [class*="bg-teal-600"] text,
+html.light [class*="bg-teal-600"] span,
+html.light [class*="bg-teal-600"],
+html.light [class*="bg-teal-700"],
+html.light [class*="bg-teal-700"] *,
+html.light [class*="bg-emerald-600"],
+html.light [class*="bg-emerald-600"] *,
+html.light [class*="bg-red-600"],
+html.light [class*="bg-red-600"] *,
+html.light [class*="bg-blue-600"],
+html.light [class*="bg-blue-600"] *,
+html.light [class*="bg-purple-600"],
+html.light [class*="bg-purple-600"] *,
+html.light [class*="bg-teal-600"],
+html.light [class*="bg-teal-600"] *,
+html.light [class*="bg-teal-700"],
+html.light [class*="bg-teal-700"] *,
+html.light [class*="bg-emerald-600"],
+html.light [class*="bg-emerald-600"] *,
+html.light .bg-teal-700 h1,
+html.light .bg-teal-600,
+html.light .bg-teal-600 * {
+  color: #ffffff !important;
+}
+
+/* Hover effects on buttons & table rows in Light Mode */
+html.light .hover\:bg-slate-800:hover,
+html.light .hover\:bg-slate-800\/30:hover,
+html.light .hover\:bg-slate-800\/20:hover {
+  background-color: #f1f5f9 !important;
+}
+html.light .hover\:bg-slate-700:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* Table Headers in Light Mode */
+html.light thead tr,
+html.light .bg-slate-800\/80 {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+}
+html.light thead th {
+  color: #334155 !important;
+}
+
+/* Inputs and Selects in Light Mode */
+html.light input[type="text"],
+html.light input[type="password"],
+html.light input[type="date"],
+html.light input[type="number"],
+html.light select,
+html.light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* NavLink active & inactive states in Light Mode */
+html.light nav a:not([class*="bg-teal"]) {
+  color: #475569;
+}
+html.light nav a:not([class*="bg-teal"]):hover {
+  color: #0f172a;
+  background-color: #f1f5f9;
+}
+
+/* Status alerts in Scan Page */
+html.light .bg-emerald-950\/40 {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #065f46 !important;
+}
+html.light .bg-red-950\/40 {
+  background-color: #fef2f2 !important;
+  border-color: #fecaca !important;
+  color: #991b1b !important;
+}
+
+/* Collapsible nested sections like Add Plan */
+html.light .bg-slate-950\/80 {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Total summary row in Scan Page (cyan-500) */
+html.light .bg-cyan-500 {
+  background-color: #06b6d4 !important;
+  color: #082f49 !important;
+}
+
+/* Gradient Header banner in Analytics */
+html.light .bg-gradient-to-r.from-slate-900.via-slate-800.to-slate-900 {
+  background: linear-gradient(to right, #f8fafc, #f1f5f9, #f8fafc) !important;
+  border-color: #e2e8f0 !important;
 }
