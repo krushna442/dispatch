@@ -12,9 +12,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:5555',
+      '/api': 'https://rsblko.in',
       '/socket.io': {
-        target: 'http://localhost:5555',
+        target: 'https://rsblko.in',
         ws: true,
       },
     },

@@ -1,4 +1,4 @@
-export const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5555';
+export const BASE = "https://rsblko.in";
 // export const BASE = import.meta.env.VITE_API_URL || 'https://dispatch-server-wcdx.onrender.com';
 
 async function handleResponse(res: Response) {
