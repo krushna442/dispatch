@@ -30,9 +30,19 @@ interface DespatchPlan {
   status: 'pending' | 'completed';
   plan_date: string;
   schedule_date: string | null;
+  customer_name?: string | null;
+  vendor_code?: string | null;
   gate_pass_number: string | null;
   created_at: string;
 }
+
+const CUSTOMER_PRESETS = [
+  { name: 'ASL & Switch Mobility', code: '7205761' },
+  { name: 'Tata Motors (TML)', code: '7205761' },
+  { name: 'VE Commercial Vehicles (VECB)', code: '113072' },
+  { name: 'IPLT', code: '10830-6' },
+  { name: 'MBP (R64535)', code: 'R64535' },
+];
 
 export default function PlansPage() {
   const [plans, setPlans] = useState<DespatchPlan[]>([]);
@@ -46,14 +56,25 @@ export default function PlansPage() {
   const [showAddSection, setShowAddSection] = useState(false);
   const [mobileView, setMobileView] = useState<'cards' | 'table'>('cards');
 
-  // Manual Add Form State
+  // Customer Management & Filtering State
+  const [customersList, setCustomersList] = useState<Array<{ customer_name: string; vendor_code?: string }>>([]);
+  const [selectedCustomerFilter, setSelectedCustomerFilter] = useState<string>('all');
+
+  // Manual Add Form State (Supports Different Customers)
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [newVendorCode, setNewVendorCode] = useState('');
   const [newPartNumber, setNewPartNumber] = useState('');
   const [newQuantity, setNewQuantity] = useState('');
   const [newScheduleDate, setNewScheduleDate] = useState(todayStr);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Edit Modal State
+  // Excel Import Customer Selection (Default customer for rows missing customer column)
+  const [importCustomerDefault, setImportCustomerDefault] = useState('');
+
+  // Edit Modal State (Supports editing Customer & Vendor Code)
   const [editingPlan, setEditingPlan] = useState<DespatchPlan | null>(null);
+  const [editCustomer, setEditCustomer] = useState('');
+  const [editVendor, setEditVendor] = useState('');
   const [editQty, setEditQty] = useState('');
   const [editDate, setEditDate] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
@@ -61,10 +82,28 @@ export default function PlansPage() {
   // File Upload Ref
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const fetchCustomers = async () => {
+    try {
+      const data = await api.get('/api/plans/customers');
+      if (Array.isArray(data) && data.length > 0) {
+        setCustomersList(data);
+      } else {
+        // Fallback to presets
+        setCustomersList(CUSTOMER_PRESETS.map((p) => ({ customer_name: p.name, vendor_code: p.code })));
+      }
+    } catch {
+      setCustomersList(CUSTOMER_PRESETS.map((p) => ({ customer_name: p.name, vendor_code: p.code })));
+    }
+  };
+
   const fetchPlans = async () => {
     setLoading(true);
     try {
-      const data = await api.get(`/api/plans?startDate=${startDate}&endDate=${endDate}`);
+      const custQuery =
+        selectedCustomerFilter && selectedCustomerFilter !== 'all'
+          ? `&customer_name=${encodeURIComponent(selectedCustomerFilter)}`
+          : '';
+      const data = await api.get(`/api/plans?startDate=${startDate}&endDate=${endDate}${custQuery}`);
       if (Array.isArray(data)) {
         setPlans(data);
       }
@@ -76,8 +115,12 @@ export default function PlansPage() {
   };
 
   useEffect(() => {
+    fetchCustomers();
+  }, []);
+
+  useEffect(() => {
     fetchPlans();
-  }, [startDate, endDate]);
+  }, [startDate, endDate, selectedCustomerFilter]);
 
   const setQuickRange = (type: 'today' | 'yesterday' | 'week' | 'month') => {
     const now = new Date();
@@ -103,6 +146,7 @@ export default function PlansPage() {
   // Real-time updates
   useSocket('despatch:plans-changed', () => {
     fetchPlans();
+    fetchCustomers();
   });
   useSocket('despatch:scan', () => {
     fetchPlans();
@@ -111,7 +155,17 @@ export default function PlansPage() {
     fetchPlans();
   });
 
-  // Handle Manual Add Record
+  const handleSelectCustomerPreset = (preset: { name: string; code: string }, isEdit = false) => {
+    if (isEdit) {
+      setEditCustomer(preset.name);
+      setEditVendor(preset.code);
+    } else {
+      setNewCustomerName(preset.name);
+      setNewVendorCode(preset.code);
+    }
+  };
+
+  // Handle Manual Add Record with Customer & Vendor Code
   const handleAddRecord = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPartNumber.trim()) {
@@ -131,11 +185,15 @@ export default function PlansPage() {
         quantity: qty,
         schedule_date: newScheduleDate || null,
         plan_date: startDate || todayStr,
+        customer_name: newCustomerName.trim() || null,
+        vendor_code: newVendorCode.trim() || null,
       });
-      toast.success(`Part ${newPartNumber.trim().toUpperCase()} added successfully`);
+      const customerLabel = newCustomerName.trim() ? ` for ${newCustomerName.trim()}` : '';
+      toast.success(`Part ${newPartNumber.trim().toUpperCase()} added successfully${customerLabel}`);
       setNewPartNumber('');
       setNewQuantity('');
       fetchPlans();
+      fetchCustomers();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to add record');
     } finally {
@@ -143,7 +201,7 @@ export default function PlansPage() {
     }
   };
 
-  // Handle Excel Import
+  // Handle Excel Import with Multi-Customer Detection
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -162,22 +220,64 @@ export default function PlansPage() {
           return;
         }
 
-        // Normalize column keys (e.g., "Part Number", "Part No", "part_number", "Quantity", "Qty")
-        const formattedPlans: Array<{ part_number: string; quantity: number }> = [];
+        const formattedPlans: Array<{
+          part_number: string;
+          quantity: number;
+          customer_name?: string | null;
+          vendor_code?: string | null;
+          schedule_date?: string | null;
+          plan_date?: string | null;
+        }> = [];
+
+        const uniqueCustomersDetected = new Set<string>();
 
         for (const row of rawData) {
+          // Identify columns dynamically
           const partKey = Object.keys(row).find((k) =>
             /part(\s|_)?(no|number)?/i.test(k)
           );
           const qtyKey = Object.keys(row).find((k) =>
             /qty|quantity|count/i.test(k)
           );
+          const custKey = Object.keys(row).find((k) =>
+            /cust(omer)?(\s|_)?(name)?/i.test(k) || /client/i.test(k)
+          );
+          const vendorKey = Object.keys(row).find((k) =>
+            /vendor(\s|_)?(code)?/i.test(k) || /supplier(\s|_)?(code)?/i.test(k)
+          );
+          const dateKey = Object.keys(row).find((k) =>
+            /schedule(\s|_)?(date)?/i.test(k) || /plan(\s|_)?(date)?/i.test(k)
+          );
 
           if (partKey && qtyKey) {
             const partVal = String(row[partKey] || '').trim().toUpperCase();
             const qtyVal = parseInt(String(row[qtyKey] || '0'), 10);
+
             if (partVal && !isNaN(qtyVal) && qtyVal > 0) {
-              formattedPlans.push({ part_number: partVal, quantity: qtyVal });
+              let rowCustomer = custKey && row[custKey] ? String(row[custKey]).trim() : (importCustomerDefault || '');
+              let rowVendor = vendorKey && row[vendorKey] ? String(row[vendorKey]).trim() : '';
+              const rowDate = dateKey && row[dateKey] ? String(row[dateKey]).trim() : (endDate || todayStr);
+
+              // Auto-fill vendor code from presets if customer is known
+              if (rowCustomer && !rowVendor) {
+                const matchedPreset = CUSTOMER_PRESETS.find(
+                  (p) => p.name.toLowerCase() === rowCustomer.toLowerCase()
+                );
+                if (matchedPreset) rowVendor = matchedPreset.code;
+              }
+
+              if (rowCustomer) {
+                uniqueCustomersDetected.add(rowCustomer);
+              }
+
+              formattedPlans.push({
+                part_number: partVal,
+                quantity: qtyVal,
+                customer_name: rowCustomer || null,
+                vendor_code: rowVendor || null,
+                schedule_date: rowDate || null,
+                plan_date: rowDate || null,
+              });
             }
           }
         }
@@ -190,8 +290,16 @@ export default function PlansPage() {
         }
 
         await api.post('/api/plans/import', formattedPlans);
-        toast.success(`Imported ${formattedPlans.length} records successfully!`);
+        const custCount = uniqueCustomersDetected.size;
+        const custSummary =
+          custCount > 1
+            ? ` across ${custCount} different customers`
+            : custCount === 1
+            ? ` for ${Array.from(uniqueCustomersDetected)[0]}`
+            : '';
+        toast.success(`Imported ${formattedPlans.length} records successfully${custSummary}!`);
         fetchPlans();
+        fetchCustomers();
       } catch (err: unknown) {
         toast.error(err instanceof Error ? err.message : 'Error reading Excel file');
       } finally {
@@ -201,20 +309,21 @@ export default function PlansPage() {
     reader.readAsBinaryString(file);
   };
 
-  // Download Dummy Excel Template
+  // Download Dummy Excel Template with Multi-Customer Examples
   const handleDownloadDummyExcel = () => {
     const dummyData = [
-      { 'Part Number': 'FC373500', Quantity: 40, 'Schedule Date': endDate || todayStr },
-      { 'Part Number': 'FEA56800', Quantity: 40, 'Schedule Date': endDate || todayStr },
-      { 'Part Number': 'FC319400', Quantity: 2, 'Schedule Date': endDate || todayStr },
-      { 'Part Number': 'FC320300', Quantity: 7, 'Schedule Date': endDate || todayStr },
-      { 'Part Number': 'FEA23500', Quantity: 4, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'Tata Motors (TML)', 'Vendor Code': '7205761', 'Part Number': 'FC373500', Quantity: 40, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'Tata Motors (TML)', 'Vendor Code': '7205761', 'Part Number': 'FEA56800', Quantity: 40, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'ASL & Switch Mobility', 'Vendor Code': '7205761', 'Part Number': 'FC319400', Quantity: 20, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'VE Commercial Vehicles (VECB)', 'Vendor Code': '113072', 'Part Number': 'FC320300', Quantity: 15, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'IPLT', 'Vendor Code': '10830-6', 'Part Number': 'FEA23500', Quantity: 10, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'MBP (R64535)', 'Vendor Code': 'R64535', 'Part Number': 'FC373500', Quantity: 12, 'Schedule Date': endDate || todayStr },
     ];
     const ws = XLSX.utils.json_to_sheet(dummyData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Template');
-    XLSX.writeFile(wb, 'RSB_Dispatch_Plan_Template.xlsx');
-    toast.info('Template downloaded');
+    XLSX.writeFile(wb, 'RSB_MultiCustomer_Dispatch_Plan_Template.xlsx');
+    toast.info('Multi-customer template downloaded');
   };
 
   // Export Scanned / Plan Data (with multi-sheet Excel and Red Background for duplicate scans)
@@ -504,6 +613,8 @@ export default function PlansPage() {
         return {
           'SR No': idx + 1,
           'Part Number': p.part_number,
+          'Customer Name': p.customer_name || '—',
+          'Vendor Code': p.vendor_code || '—',
           'Quantity': p.quantity,
           'Balance Quantity': p.balance_quantity,
           'Scanned Quantity': p.scanned_quantity,
@@ -534,7 +645,7 @@ export default function PlansPage() {
       // If any part has duplicate attempts, highlight Duplicate Attempts cell with soft red
       exportPlanData.forEach((row, rIdx) => {
         if (row['Duplicate Attempts'] > 0) {
-          const dupCellAddr = XLSX.utils.encode_cell({ r: rIdx + 1, c: 5 });
+          const dupCellAddr = XLSX.utils.encode_cell({ r: rIdx + 1, c: 7 });
           if (wsPlans[dupCellAddr]) {
             wsPlans[dupCellAddr].s = {
               fill: { fgColor: { rgb: 'FFC7CE' } },
@@ -575,6 +686,8 @@ export default function PlansPage() {
     setEditingPlan(plan);
     setEditQty(String(plan.quantity));
     setEditDate(plan.schedule_date ? plan.schedule_date.slice(0, 10) : endDate || todayStr);
+    setEditCustomer(plan.customer_name || '');
+    setEditVendor(plan.vendor_code || '');
   };
 
   // Save Edit
@@ -598,10 +711,13 @@ export default function PlansPage() {
       await api.put(`/api/plans/${editingPlan.id}`, {
         quantity: qty,
         schedule_date: editDate || null,
+        customer_name: editCustomer.trim() || null,
+        vendor_code: editVendor.trim() || null,
       });
       toast.success('Record updated');
       setEditingPlan(null);
       fetchPlans();
+      fetchCustomers();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to update record');
     } finally {
@@ -613,13 +729,20 @@ export default function PlansPage() {
   const filteredPlans = useMemo(() => {
     return plans.filter((p) => {
       const q = searchQuery.toLowerCase();
-      return (
+      const matchesSearch =
         p.part_number.toLowerCase().includes(q) ||
         p.status.toLowerCase().includes(q) ||
-        (p.gate_pass_number && p.gate_pass_number.toLowerCase().includes(q))
-      );
+        (p.customer_name && p.customer_name.toLowerCase().includes(q)) ||
+        (p.vendor_code && p.vendor_code.toLowerCase().includes(q)) ||
+        (p.gate_pass_number && p.gate_pass_number.toLowerCase().includes(q));
+
+      const matchesCustomer =
+        selectedCustomerFilter === 'all' ||
+        (p.customer_name && p.customer_name.toLowerCase() === selectedCustomerFilter.toLowerCase());
+
+      return matchesSearch && matchesCustomer;
     });
-  }, [plans, searchQuery]);
+  }, [plans, searchQuery, selectedCustomerFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredPlans.length / pageSize));
   const paginatedPlans = useMemo(() => {
@@ -749,108 +872,201 @@ export default function PlansPage() {
 
           {/* Collapsible Adding / Importing Section */}
           {showAddSection && (
-            <div className="bg-slate-950/80 p-3.5 sm:p-5 rounded-2xl border border-teal-500/30 shadow-inner space-y-3.5 sm:space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
-                  <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide">
-                    Add or Import Dispatch Plan Records
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:gap-2">
-                  {/* Hidden Excel Input */}
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileUpload}
-                    accept=".xlsx, .xls, .csv"
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/20 transition-all cursor-pointer"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    Import Records
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDownloadDummyExcel}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 text-xs font-semibold transition-all cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    Dummy Excel
-                  </button>
-                </div>
+            <div className="bg-slate-950/80 p-3.5 sm:p-5 rounded-2xl border border-teal-500/30 shadow-inner space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-slate-800/80">
+                <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
+                <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide">
+                  Upload or Add Dispatch Plan Records (Multi-Customer Support)
+                </h3>
               </div>
 
-              {/* Manual Entry Form */}
-              <form
-                onSubmit={handleAddRecord}
-                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 items-end"
-              >
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Part Number:
-                  </label>
-                  <input
-                    type="text"
-                    value={newPartNumber}
-                    onChange={(e) => setNewPartNumber(e.target.value)}
-                    placeholder="e.g. FC373500"
-                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono uppercase"
-                  />
+              {/* 1. Excel Bulk Import Section */}
+              <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-300 shrink-0">
+                      Excel Customer Assignment:
+                    </span>
+                    <select
+                      value={importCustomerDefault}
+                      onChange={(e) => setImportCustomerDefault(e.target.value)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium"
+                    >
+                      <option value="">Auto-detect from Excel 'Customer Name' column</option>
+                      {customersList.map((c) => (
+                        <option key={c.customer_name} value={c.customer_name}>
+                          Assign all to: {c.customer_name} {c.vendor_code ? `(${c.vendor_code})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Hidden Excel Input */}
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileUpload}
+                      accept=".xlsx, .xls, .csv"
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      Import Excel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadDummyExcel}
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 text-xs font-semibold transition-all cursor-pointer"
+                      title="Download template with Customer Name and Vendor Code columns"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Dummy Excel
+                    </button>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Quantity:
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={newQuantity}
-                    onChange={(e) => setNewQuantity(e.target.value)}
-                    placeholder="e.g. 40"
-                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  />
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  💡 <strong>Tip:</strong> You can upload plans for multiple customers at once! Simply include a <span className="font-mono text-teal-400">Customer Name</span> and <span className="font-mono text-teal-400">Vendor Code</span> column in your Excel spreadsheet, or select a default customer above.
+                </p>
+              </div>
+
+              {/* 2. Manual Entry Form with Customer & Vendor Code Selection */}
+              <div className="space-y-3 pt-1">
+                {/* Quick Customer Preset Pills */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-slate-400 mr-1">Quick Customer Select:</span>
+                  {CUSTOMER_PRESETS.map((p) => {
+                    const isSelected = newCustomerName.toLowerCase() === p.name.toLowerCase();
+                    return (
+                      <button
+                        key={p.name}
+                        type="button"
+                        onClick={() => handleSelectCustomerPreset(p)}
+                        className={`px-2 py-0.5 rounded-lg border text-[11px] transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-teal-600 border-teal-500 text-white font-bold shadow-sm'
+                            : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-teal-300 font-medium'
+                        }`}
+                      >
+                        {p.name}
+                      </button>
+                    );
+                  })}
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Date:
-                  </label>
-                  <input
-                    type="date"
-                    value={newScheduleDate}
-                    onChange={(e) => setNewScheduleDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  />
-                </div>
+                <form
+                  onSubmit={handleAddRecord}
+                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-3.5 items-end"
+                >
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Customer Name:
+                    </label>
+                    <input
+                      type="text"
+                      list="customer-preset-options"
+                      value={newCustomerName}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setNewCustomerName(val);
+                        const matchedPreset = CUSTOMER_PRESETS.find((p) => p.name.toLowerCase() === val.toLowerCase());
+                        const matchedCustom = customersList.find((c) => c.customer_name.toLowerCase() === val.toLowerCase());
+                        const code = matchedPreset ? matchedPreset.code : (matchedCustom?.vendor_code || '');
+                        if (code) {
+                          setNewVendorCode(code);
+                        }
+                      }}
+                      placeholder="e.g. Tata Motors (TML)"
+                      className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <datalist id="customer-preset-options">
+                      {customersList.map((c) => (
+                        <option key={c.customer_name} value={c.customer_name} />
+                      ))}
+                    </datalist>
+                  </div>
 
-                <div>
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="w-full py-2 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 disabled:opacity-50 cursor-pointer"
-                  >
-                    {isSaving ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Save className="w-4 h-4" />
-                    )}
-                    Save
-                  </button>
-                </div>
-              </form>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Vendor Code:
+                    </label>
+                    <input
+                      type="text"
+                      value={newVendorCode}
+                      onChange={(e) => setNewVendorCode(e.target.value)}
+                      placeholder="e.g. 7205761"
+                      className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Part Number:
+                    </label>
+                    <input
+                      type="text"
+                      value={newPartNumber}
+                      onChange={(e) => setNewPartNumber(e.target.value)}
+                      placeholder="e.g. FC373500"
+                      required
+                      className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono uppercase"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Quantity:
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={newQuantity}
+                      onChange={(e) => setNewQuantity(e.target.value)}
+                      placeholder="e.g. 40"
+                      required
+                      className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Schedule Date:
+                    </label>
+                    <input
+                      type="date"
+                      value={newScheduleDate}
+                      onChange={(e) => setNewScheduleDate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                  </div>
+
+                  <div>
+                    <button
+                      type="submit"
+                      disabled={isSaving}
+                      className="w-full py-2 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isSaving ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4" />
+                      )}
+                      Save Plan
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           )}
 
           {/* Filter & Pagination Controls */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
-            <div className="flex items-center justify-between sm:justify-start gap-2">
+            <div className="flex flex-wrap items-center justify-between sm:justify-start gap-2">
               <div className="flex items-center gap-1.5 text-xs text-slate-400 bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5">
                 <span>Show</span>
                 <select
@@ -867,6 +1083,28 @@ export default function PlansPage() {
                   <option value={100} className="bg-slate-800">100</option>
                 </select>
                 <span>entries</span>
+              </div>
+
+              {/* Customer Filter Dropdown */}
+              <div className="flex items-center gap-1.5 text-xs text-slate-400 bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5">
+                <span className="font-semibold text-slate-400 shrink-0">Customer:</span>
+                <select
+                  value={selectedCustomerFilter}
+                  onChange={(e) => {
+                    setSelectedCustomerFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="bg-transparent text-white font-semibold focus:outline-none cursor-pointer max-w-[150px] sm:max-w-[210px] truncate"
+                >
+                  <option value="all" className="bg-slate-800">
+                    All Customers ({plans.length})
+                  </option>
+                  {customersList.map((c) => (
+                    <option key={c.customer_name} value={c.customer_name} className="bg-slate-800">
+                      {c.customer_name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Mobile View Switcher (Cards vs Table) */}
@@ -967,6 +1205,19 @@ export default function PlansPage() {
                   key={plan.id}
                   className="bg-slate-800/70 border border-slate-700/80 rounded-xl p-3.5 space-y-3 hover:border-slate-600 transition-all shadow-md"
                 >
+                  {/* Customer Badge on Mobile */}
+                  {plan.customer_name && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-teal-300 font-medium py-1 px-2.5 rounded-lg bg-teal-500/10 border border-teal-500/20">
+                      <span className="text-teal-400 font-bold shrink-0">🏢 Customer:</span>
+                      <span className="font-semibold text-white truncate">{plan.customer_name}</span>
+                      {plan.vendor_code && (
+                        <span className="text-[10px] text-slate-400 font-mono ml-auto shrink-0">
+                          ({plan.vendor_code})
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {/* Card Top: SR No, Part Number, Status & Actions */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
@@ -992,14 +1243,14 @@ export default function PlansPage() {
                       <button
                         onClick={() => openEdit(plan)}
                         title="Edit Plan"
-                        className="p-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                        className="p-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => handleDelete(plan.id)}
                         title="Delete Plan"
-                        className="p-1 rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors"
+                        className="p-1 rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1076,12 +1327,13 @@ export default function PlansPage() {
             <span>Horizontal Table</span>
             <span className="font-mono">Swipe horizontally &rarr;</span>
           </div>
-          <table className="w-full text-left text-xs border-collapse min-w-[780px]">
+          <table className="w-full text-left text-xs border-collapse min-w-[850px]">
             <thead>
               <tr className="bg-slate-800/80 border-y border-slate-700 text-slate-300 whitespace-nowrap">
                 <th className="px-4 py-3 font-semibold text-center w-24 whitespace-nowrap">Action</th>
                 <th className="px-4 py-3 font-semibold text-center w-16 whitespace-nowrap">SR No</th>
                 <th className="px-4 py-3 font-semibold whitespace-nowrap">Part No</th>
+                <th className="px-4 py-3 font-semibold whitespace-nowrap">Customer / Vendor</th>
                 <th className="px-4 py-3 font-semibold text-right whitespace-nowrap">Quantity</th>
                 <th className="px-4 py-3 font-semibold text-right whitespace-nowrap">Balance Quantity</th>
                 <th className="px-4 py-3 font-semibold text-right whitespace-nowrap">Scan Part Quantity</th>
@@ -1097,6 +1349,9 @@ export default function PlansPage() {
                   Total -
                 </td>
                 <td className="px-4 py-2.5 font-bold">Total Planned Parts ({plans.length})</td>
+                <td className="px-4 py-2.5 font-bold text-xs text-slate-900">
+                  {selectedCustomerFilter === 'all' ? 'All Customers' : selectedCustomerFilter}
+                </td>
                 <td className="px-4 py-2.5 text-right font-extrabold text-sm">
                   {totals.totalQty}
                 </td>
@@ -1116,14 +1371,14 @@ export default function PlansPage() {
               {/* Data Rows */}
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-500">
+                  <td colSpan={10} className="py-12 text-center text-slate-500">
                     <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-teal-400" />
                     Loading records...
                   </td>
                 </tr>
               ) : paginatedPlans.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-500">
+                  <td colSpan={10} className="py-12 text-center text-slate-500">
                     No records found for the selected date. Import Excel or add records above.
                   </td>
                 </tr>
@@ -1147,14 +1402,14 @@ export default function PlansPage() {
                           <button
                             onClick={() => openEdit(plan)}
                             title="Edit Plan"
-                            className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                            className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => handleDelete(plan.id)}
                             title="Delete Plan"
-                            className="p-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors"
+                            className="p-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -1169,6 +1424,24 @@ export default function PlansPage() {
                       {/* Part No */}
                       <td className="px-4 py-2.5 font-bold font-mono text-white tracking-wide">
                         {plan.part_number}
+                      </td>
+
+                      {/* Customer / Vendor */}
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        {plan.customer_name ? (
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-teal-300 text-xs">
+                              {plan.customer_name}
+                            </span>
+                            {plan.vendor_code && (
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                Code: {plan.vendor_code}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-500 italic text-[11px]">—</span>
+                        )}
                       </td>
 
                       {/* Quantity */}
@@ -1260,7 +1533,7 @@ export default function PlansPage() {
             <button
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
-              className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-40 transition-colors"
+              className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-40 transition-colors cursor-pointer"
             >
               Previous
             </button>
@@ -1270,7 +1543,7 @@ export default function PlansPage() {
             <button
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               disabled={currentPage >= totalPages}
-              className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-40 transition-colors"
+              className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-40 transition-colors cursor-pointer"
             >
               Next
             </button>
@@ -1296,6 +1569,49 @@ export default function PlansPage() {
             </div>
 
             <form onSubmit={handleUpdate} className="space-y-4">
+              {/* Customer selection in Edit modal */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">
+                  Customer Name:
+                </label>
+                <div className="flex flex-wrap gap-1 mb-1.5">
+                  {CUSTOMER_PRESETS.map((p) => (
+                    <button
+                      key={p.name}
+                      type="button"
+                      onClick={() => handleSelectCustomerPreset(p, true)}
+                      className={`px-2 py-0.5 rounded text-[10px] transition-all cursor-pointer ${
+                        editCustomer.toLowerCase() === p.name.toLowerCase()
+                          ? 'bg-teal-600 text-white font-bold'
+                          : 'bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700'
+                      }`}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={editCustomer}
+                  onChange={(e) => setEditCustomer(e.target.value)}
+                  placeholder="e.g. Tata Motors (TML)"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">
+                  Vendor Code:
+                </label>
+                <input
+                  type="text"
+                  value={editVendor}
+                  onChange={(e) => setEditVendor(e.target.value)}
+                  placeholder="e.g. 7205761"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono"
+                />
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-400 mb-1">
                   Total Planned Quantity:
@@ -1329,14 +1645,14 @@ export default function PlansPage() {
                 <button
                   type="button"
                   onClick={() => setEditingPlan(null)}
-                  className="px-4 py-2 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  className="px-4 py-2 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isUpdating}
-                  className="px-5 py-2 rounded-xl text-sm font-semibold bg-teal-600 hover:bg-teal-500 text-white transition-all shadow-md shadow-teal-600/20 disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl text-sm font-semibold bg-teal-600 hover:bg-teal-500 text-white transition-all shadow-md shadow-teal-600/20 disabled:opacity-50 cursor-pointer"
                 >
                   {isUpdating ? 'Saving...' : 'Save Changes'}
                 </button>
