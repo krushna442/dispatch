@@ -78,10 +78,14 @@ interface UserStat {
   role?: 'admin' | 'sales' | 'operator';
   customer_name?: string | null;
   vendor_code?: string | null;
+  customers?: string[];
   total_plans: number;
   completed_plans: number;
+  uploaded_plans?: number;
+  completed_uploaded_plans?: number;
   scans: number;
   user_scanned_plans?: number;
+  completed_scanned_plans?: number;
   last_active: string | null;
   scanned_by?: UserScannerItem[];
   scanned_for?: UserScannedForItem[];
@@ -683,7 +687,18 @@ export default function AnalyticsPage() {
                           </div>
                         </td>
                         <td className="px-4 py-3 font-sans">
-                          {u.customer_name ? (
+                          {u.customers && u.customers.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {u.customers.map((cust) => (
+                                <span
+                                  key={cust}
+                                  className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-800 text-slate-200 border border-slate-700"
+                                >
+                                  {cust}
+                                </span>
+                              ))}
+                            </div>
+                          ) : u.customer_name ? (
                             <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700">
                               {u.customer_name}
                             </span>
