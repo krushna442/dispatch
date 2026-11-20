@@ -8,6 +8,7 @@ import ScanPage from './pages/ScanPage';
 import GatePassPage from './pages/GatePassPage';
 import UsersPage from './pages/UsersPage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import SettingsPage from './pages/SettingsPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -87,6 +88,14 @@ export default function App() {
           element={
             <RoleRoute roles={['admin']}>
               <AnalyticsPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="settings"
+          element={
+            <RoleRoute roles={['admin']}>
+              <SettingsPage />
             </RoleRoute>
           }
         />

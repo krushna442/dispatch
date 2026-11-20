@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import ThemeToggle from './ThemeToggle';
 import {
   LayoutDashboard, ClipboardList, ScanLine, Truck,
-  Users, BarChart3, LogOut, Menu, X, ChevronLeft, ChevronRight
+  Users, BarChart3, LogOut, Menu, X, ChevronLeft, ChevronRight, Settings
 } from 'lucide-react';
 
 export default function Layout() {
@@ -53,6 +53,7 @@ export default function Layout() {
       { to: '/gatepass', label: 'Gate Pass', icon: Truck },
       { to: '/analytics', label: 'Analytics', icon: BarChart3 },
       { to: '/users', label: 'Users', icon: Users },
+      { to: '/settings', label: 'Settings & Logs', icon: Settings },
     ];
   };
 

@@ -710,13 +710,27 @@ export default function AnalyticsPage() {
                             <span className="text-slate-500 text-xs italic">Global / All Customers</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-right font-bold text-slate-200">
-                          {u.total_plans}
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex flex-col items-end">
+                            <span className="font-bold text-slate-200 text-sm">
+                              {u.total_plans}
+                            </span>
+                            <span className="text-[10px] font-sans text-slate-400">
+                              {u.role === 'operator' ? 'scanned' : 'uploaded'}
+                            </span>
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-right font-bold text-emerald-400">
-                          {u.completed_plans}
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex flex-col items-end">
+                            <span className="font-bold text-emerald-400 text-sm">
+                              {u.completed_plans}
+                            </span>
+                            <span className="text-[10px] font-sans text-emerald-400/80">
+                              {u.role === 'operator' ? 'fulfilled' : 'completed'}
+                            </span>
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-right font-extrabold text-teal-400">
+                        <td className="px-4 py-3 text-right font-extrabold text-teal-400 text-sm">
                           {u.scans}
                         </td>
                         <td className="px-4 py-3 font-sans">
@@ -735,7 +749,7 @@ export default function AnalyticsPage() {
                             </div>
 
                             <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5">
-                              <span>{u.completed_plans} / {u.total_plans} plans</span>
+                              <span>{u.completed_plans} / {u.total_plans} {u.role === 'operator' ? 'scanned plans' : 'uploaded plans'}</span>
                               <span className="font-semibold text-teal-400">{u.scans} parts scanned</span>
                             </div>
 
