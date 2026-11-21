@@ -252,9 +252,15 @@ export default function AnalyticsPage() {
       }
     });
     // Add common presets if not present
-    ['ASL & Switch Mobility', 'Tata Motors (TML)', 'VE Commercial Vehicles (VECB)', 'IPLT', 'MBP (R64535)'].forEach(
-      (c) => list.add(c)
-    );
+    [
+      'ASL PNR MBP',
+      'ASL ALW MBP',
+      'ASL ALH MBP',
+      'Switch Mobility',
+      'Tata Motors (TML)',
+      'IPLT',
+      'VE Commercial Vehicles (VECV)'
+    ].forEach((c) => list.add(c));
     return Array.from(list).sort();
   }, [plansAudit]);
 

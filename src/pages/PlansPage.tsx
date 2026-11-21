@@ -37,11 +37,13 @@ interface DespatchPlan {
 }
 
 const CUSTOMER_PRESETS = [
-  { name: 'ASL & Switch Mobility', code: '7205761' },
-  { name: 'Tata Motors (TML)', code: '7205761' },
-  { name: 'VE Commercial Vehicles (VECB)', code: '113072' },
+  { name: 'ASL PNR MBP', code: '7201012' },
+  { name: 'ASL ALW MBP', code: '7205761' },
+  { name: 'ASL ALH MBP', code: '7200868' },
+  { name: 'Switch Mobility', code: '7207001' },
+  { name: 'Tata Motors (TML)', code: 'R64535' },
   { name: 'IPLT', code: '10830-6' },
-  { name: 'MBP (R64535)', code: 'R64535' },
+  { name: 'VE Commercial Vehicles (VECV)', code: 'V113072' },
 ];
 
 export default function PlansPage() {
@@ -260,10 +262,27 @@ export default function PlansPage() {
 
               // Auto-fill vendor code from presets if customer is known
               if (rowCustomer && !rowVendor) {
+                const lower = rowCustomer.toLowerCase();
                 const matchedPreset = CUSTOMER_PRESETS.find(
-                  (p) => p.name.toLowerCase() === rowCustomer.toLowerCase()
+                  (p) => p.name.toLowerCase() === lower
                 );
-                if (matchedPreset) rowVendor = matchedPreset.code;
+                if (matchedPreset) {
+                  rowVendor = matchedPreset.code;
+                } else if (lower.includes('asl') && lower.includes('pnr')) {
+                  rowVendor = '7201012';
+                } else if (lower.includes('asl') && lower.includes('alw')) {
+                  rowVendor = '7205761';
+                } else if (lower.includes('asl') && lower.includes('alh')) {
+                  rowVendor = '7200868';
+                } else if (lower.includes('switch')) {
+                  rowVendor = '7207001';
+                } else if (lower.includes('tml') || lower.includes('tata')) {
+                  rowVendor = 'R64535';
+                } else if (lower.includes('iplt')) {
+                  rowVendor = '10830-6';
+                } else if (lower.includes('vecv') || lower.includes('vecb') || lower.includes('commercial vehicles')) {
+                  rowVendor = 'V113072';
+                }
               }
 
               if (rowCustomer) {
@@ -312,12 +331,13 @@ export default function PlansPage() {
   // Download Dummy Excel Template with Multi-Customer Examples
   const handleDownloadDummyExcel = () => {
     const dummyData = [
-      { 'Customer Name': 'Tata Motors (TML)', 'Vendor Code': '7205761', 'Part Number': 'FC373500', Quantity: 40, 'Schedule Date': endDate || todayStr },
-      { 'Customer Name': 'Tata Motors (TML)', 'Vendor Code': '7205761', 'Part Number': 'FEA56800', Quantity: 40, 'Schedule Date': endDate || todayStr },
-      { 'Customer Name': 'ASL & Switch Mobility', 'Vendor Code': '7205761', 'Part Number': 'FC319400', Quantity: 20, 'Schedule Date': endDate || todayStr },
-      { 'Customer Name': 'VE Commercial Vehicles (VECB)', 'Vendor Code': '113072', 'Part Number': 'FC320300', Quantity: 15, 'Schedule Date': endDate || todayStr },
-      { 'Customer Name': 'IPLT', 'Vendor Code': '10830-6', 'Part Number': 'FEA23500', Quantity: 10, 'Schedule Date': endDate || todayStr },
-      { 'Customer Name': 'MBP (R64535)', 'Vendor Code': 'R64535', 'Part Number': 'FC373500', Quantity: 12, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'ASL PNR MBP', 'Vendor Code': '7201012', 'Part Number': 'FEA73900', Quantity: 30, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'ASL ALW MBP', 'Vendor Code': '7205761', 'Part Number': 'FC319400', Quantity: 20, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'ASL ALH MBP', 'Vendor Code': '7200868', 'Part Number': 'FC320300', Quantity: 15, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'Switch Mobility', 'Vendor Code': '7207001', 'Part Number': 'FEA56800', Quantity: 25, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'Tata Motors (TML)', 'Vendor Code': 'R64535', 'Part Number': '514741120104', Quantity: 40, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'IPLT', 'Vendor Code': '10830-6', 'Part Number': 'H07050005', Quantity: 10, 'Schedule Date': endDate || todayStr },
+      { 'Customer Name': 'VE Commercial Vehicles (VECV)', 'Vendor Code': 'V113072', 'Part Number': 'ID628567A', Quantity: 12, 'Schedule Date': endDate || todayStr },
     ];
     const ws = XLSX.utils.json_to_sheet(dummyData);
     const wb = XLSX.utils.book_new();
@@ -1592,11 +1612,32 @@ export default function PlansPage() {
                 </div>
                 <input
                   type="text"
+                  list="edit-plan-customer-options"
                   value={editCustomer}
-                  onChange={(e) => setEditCustomer(e.target.value)}
-                  placeholder="e.g. Tata Motors (TML)"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setEditCustomer(val);
+                    const matchedPreset = CUSTOMER_PRESETS.find(
+                      (p) => p.name.toLowerCase() === val.toLowerCase()
+                    );
+                    const matchedCustom = customersList.find(
+                      (c) => c.customer_name.toLowerCase() === val.toLowerCase()
+                    );
+                    const code = matchedPreset
+                      ? matchedPreset.code
+                      : (matchedCustom?.vendor_code || '');
+                    if (code) {
+                      setEditVendor(code);
+                    }
+                  }}
+                  placeholder="e.g. ASL PNR MBP"
                   className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
+                <datalist id="edit-plan-customer-options">
+                  {customersList.map((c) => (
+                    <option key={c.customer_name} value={c.customer_name} />
+                  ))}
+                </datalist>
               </div>
 
               <div>
@@ -1607,7 +1648,7 @@ export default function PlansPage() {
                   type="text"
                   value={editVendor}
                   onChange={(e) => setEditVendor(e.target.value)}
-                  placeholder="e.g. 7205761"
+                  placeholder="e.g. 7201012"
                   className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono"
                 />
               </div>

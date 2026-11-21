@@ -36,12 +36,13 @@ interface ManagedUser {
 
 // Preset known customers / vendor codes for convenience
 const CUSTOMER_PRESETS = [
-  { name: 'ASL & Switch Mobility', code: '7205761' },
-  { name: 'Tata Motors (TML)', code: '7205761' },
-  { name: 'VE Commercial Vehicles (VECB)', code: '113072' },
+  { name: 'ASL PNR MBP', code: '7201012' },
+  { name: 'ASL ALW MBP', code: '7205761' },
+  { name: 'ASL ALH MBP', code: '7200868' },
+  { name: 'Switch Mobility', code: '7207001' },
+  { name: 'Tata Motors (TML)', code: 'R64535' },
   { name: 'IPLT', code: '10830-6' },
-  { name: 'MBP (R64535)', code: 'R64535' },
-  { name: 'MBP (7201012)', code: '7201012' },
+  { name: 'VE Commercial Vehicles (VECV)', code: 'V113072' },
 ];
 
 export default function UsersPage() {
@@ -630,11 +631,28 @@ export default function UsersPage() {
                   </label>
                   <input
                     type="text"
+                    list="user-customer-preset-options"
                     value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    placeholder="e.g. Switch Mobility"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCustomerName(val);
+                      const matched = CUSTOMER_PRESETS.find(
+                        (p) => p.name.toLowerCase() === val.toLowerCase()
+                      );
+                      if (matched) {
+                        setVendorCode(matched.code);
+                      }
+                    }}
+                    placeholder="e.g. ASL PNR MBP"
                     className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
+                  <datalist id="user-customer-preset-options">
+                    {CUSTOMER_PRESETS.map((p) => (
+                      <option key={p.code + p.name} value={p.name}>
+                        {p.name} ({p.code})
+                      </option>
+                    ))}
+                  </datalist>
                 </div>
 
                 <div>
@@ -645,7 +663,7 @@ export default function UsersPage() {
                     type="text"
                     value={vendorCode}
                     onChange={(e) => setVendorCode(e.target.value)}
-                    placeholder="e.g. 7205761"
+                    placeholder="e.g. 7201012"
                     className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono"
                   />
                 </div>
@@ -826,11 +844,28 @@ export default function UsersPage() {
                   </label>
                   <input
                     type="text"
+                    list="edit-user-customer-preset-options"
                     value={editCustomer}
-                    onChange={(e) => setEditCustomer(e.target.value)}
-                    placeholder="e.g. Switch Mobility"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEditCustomer(val);
+                      const matched = CUSTOMER_PRESETS.find(
+                        (p) => p.name.toLowerCase() === val.toLowerCase()
+                      );
+                      if (matched) {
+                        setEditVendor(matched.code);
+                      }
+                    }}
+                    placeholder="e.g. ASL PNR MBP"
                     className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
+                  <datalist id="edit-user-customer-preset-options">
+                    {CUSTOMER_PRESETS.map((p) => (
+                      <option key={p.code + p.name} value={p.name}>
+                        {p.name} ({p.code})
+                      </option>
+                    ))}
+                  </datalist>
                 </div>
 
                 <div>
@@ -841,7 +876,7 @@ export default function UsersPage() {
                     type="text"
                     value={editVendor}
                     onChange={(e) => setEditVendor(e.target.value)}
-                    placeholder="e.g. 7205761"
+                    placeholder="e.g. 7201012"
                     className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono"
                   />
                 </div>
