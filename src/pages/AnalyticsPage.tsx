@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import * as XLSX from 'xlsx-js-style';
 import { toast } from 'sonner';
+import { getNormalizedCustomer } from './PlansPage';
 import {
   BarChart,
   Bar,
@@ -246,11 +247,6 @@ export default function AnalyticsPage() {
   // Derive unique customer list for dropdown
   const uniqueCustomers = useMemo(() => {
     const list = new Set<string>();
-    plansAudit.forEach((p) => {
-      if (p.customer_name && p.customer_name.trim()) {
-        list.add(p.customer_name.trim());
-      }
-    });
     // Add common presets if not present
     [
       'ASL PNR MBP',
@@ -261,7 +257,15 @@ export default function AnalyticsPage() {
       'IPLT',
       'VE Commercial Vehicles (VECV)'
     ].forEach((c) => list.add(c));
-    return Array.from(list).sort();
+
+    plansAudit.forEach((p) => {
+      const norm = getNormalizedCustomer(p.customer_name, p.vendor_code);
+      if (norm.name) {
+        list.add(norm.name);
+      }
+    });
+
+    return Array.from(list);
   }, [plansAudit]);
 
   // Client-side text search over the plans
@@ -341,8 +345,8 @@ export default function AnalyticsPage() {
         rows.push([
           idx + 1,
           p.part_number,
-          p.customer_name || '—',
-          p.vendor_code || '—',
+          getNormalizedCustomer(p.customer_name, p.vendor_code).name || p.customer_name || '—',
+          getNormalizedCustomer(p.customer_name, p.vendor_code).code || p.vendor_code || '—',
           planDateStr,
           scheduleDateStr,
           p.quantity,
@@ -704,13 +708,9 @@ export default function AnalyticsPage() {
                                 </span>
                               ))}
                             </div>
-                          ) : u.customer_name ? (
+                          ) : u.customer_name || u.vendor_code ? (
                             <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700">
-                              {u.customer_name}
-                            </span>
-                          ) : u.vendor_code ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700">
-                              Vendor: {u.vendor_code}
+                              {getNormalizedCustomer(u.customer_name, u.vendor_code).name || u.customer_name}
                             </span>
                           ) : (
                             <span className="text-slate-500 text-xs italic">Global / All Customers</span>
@@ -1055,11 +1055,11 @@ export default function AnalyticsPage() {
                       <td className="px-4 py-3 font-sans">
                         <div className="flex flex-col gap-0.5">
                           <span className="font-semibold text-slate-200">
-                            {p.customer_name || '—'}
+                            {getNormalizedCustomer(p.customer_name, p.vendor_code).name || p.customer_name || '—'}
                           </span>
-                          {p.vendor_code && (
+                          {(p.vendor_code || getNormalizedCustomer(p.customer_name, p.vendor_code).code) && (
                             <span className="text-[10px] text-slate-400 font-mono">
-                              Vendor: {p.vendor_code}
+                              Vendor: {getNormalizedCustomer(p.customer_name, p.vendor_code).code || p.vendor_code}
                             </span>
                           )}
                         </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api, BASE } from '../utils/api';
 import * as XLSX from 'xlsx-js-style';
 import { toast } from 'sonner';
+import { getNormalizedCustomer } from './PlansPage';
 import {
   Database,
   Download,
@@ -1685,9 +1686,9 @@ export default function SettingsPage() {
 
                           {/* Customer */}
                           <td className="py-3 px-3">
-                            {user.customer_name ? (
+                            {user.customer_name || user.vendor_code ? (
                               <span className="inline-block px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
-                                {user.customer_name}
+                                {getNormalizedCustomer(user.customer_name, user.vendor_code).name || user.customer_name}
                               </span>
                             ) : (
                               <span className="text-[11px] text-slate-500 italic">Global / All</span>

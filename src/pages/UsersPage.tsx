@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../utils/api';
 import { toast } from 'sonner';
+import { getNormalizedCustomer } from './PlansPage';
 import {
   Users,
   UserPlus,
@@ -421,10 +422,10 @@ export default function UsersPage() {
 
                       {/* Customer Name */}
                       <td className="px-4 py-3 font-medium text-slate-200">
-                        {u.customer_name ? (
+                        {u.customer_name || u.vendor_code ? (
                           <div className="flex items-center gap-1.5">
                             <Building2 className="w-3.5 h-3.5 text-teal-400" />
-                            {u.customer_name}
+                            {getNormalizedCustomer(u.customer_name, u.vendor_code).name || u.customer_name}
                           </div>
                         ) : (
                           <span className="text-slate-500 italic">All Customers</span>
@@ -433,9 +434,9 @@ export default function UsersPage() {
 
                       {/* Vendor Code */}
                       <td className="px-4 py-3 font-mono font-bold text-teal-400">
-                        {u.vendor_code ? (
+                        {u.vendor_code || getNormalizedCustomer(u.customer_name, u.vendor_code).code ? (
                           <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">
-                            {u.vendor_code}
+                            {getNormalizedCustomer(u.customer_name, u.vendor_code).code || u.vendor_code}
                           </span>
                         ) : (
                           <span className="text-slate-600 font-normal">—</span>

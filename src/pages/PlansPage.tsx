@@ -46,6 +46,87 @@ const CUSTOMER_PRESETS = [
   { name: 'VE Commercial Vehicles (VECV)', code: 'V113072' },
 ];
 
+export const getNormalizedCustomer = (customerName?: string | null, vendorCode?: string | null) => {
+  const v = (vendorCode || '').trim();
+  const c = (customerName || '').trim();
+  const cLower = c.toLowerCase();
+
+  // 1. Pantnagar (7201012)
+  if (
+    v === '7201012' ||
+    cLower.includes('7201012') ||
+    cLower === 'mbp' ||
+    cLower.includes('asl & switch') ||
+    cLower.includes('pantnagar') ||
+    cLower.includes('all_p') ||
+    (cLower.includes('asl') && cLower.includes('pnr'))
+  ) {
+    return { name: 'ASL PNR MBP', code: '7201012' };
+  }
+
+  // 2. Alwar (7205761)
+  if (
+    v === '7205761' ||
+    cLower.includes('7205761') ||
+    cLower.includes('alwar') ||
+    (cLower.includes('asl') && cLower.includes('alw'))
+  ) {
+    return { name: 'ASL ALW MBP', code: '7205761' };
+  }
+
+  // 3. Hosur (7200868)
+  if (
+    v === '7200868' ||
+    cLower.includes('7200868') ||
+    cLower.includes('hosur') ||
+    (cLower.includes('asl') && cLower.includes('alh'))
+  ) {
+    return { name: 'ASL ALH MBP', code: '7200868' };
+  }
+
+  // 4. Switch Mobility (7207001)
+  if (
+    v === '7207001' ||
+    cLower.includes('7207001') ||
+    (cLower.includes('switch') && !cLower.includes('&') && !cLower.includes('7201012'))
+  ) {
+    return { name: 'Switch Mobility', code: '7207001' };
+  }
+
+  // 5. Tata Motors (R64535)
+  if (
+    v.toUpperCase() === 'R64535' ||
+    cLower.includes('r64535') ||
+    cLower.includes('tml') ||
+    cLower.includes('tata')
+  ) {
+    return { name: 'Tata Motors (TML)', code: 'R64535' };
+  }
+
+  // 6. IPLT (10830-6)
+  if (
+    v === '10830-6' ||
+    cLower.includes('10830-6') ||
+    cLower.includes('iplt')
+  ) {
+    return { name: 'IPLT', code: '10830-6' };
+  }
+
+  // 7. VECV (V113072)
+  if (
+    v.toUpperCase() === 'V113072' ||
+    v === '113072' ||
+    cLower.includes('v113072') ||
+    cLower.includes('113072') ||
+    cLower.includes('vecv') ||
+    cLower.includes('commercial vehicles')
+  ) {
+    return { name: 'VE Commercial Vehicles (VECV)', code: 'V113072' };
+  }
+
+  return { name: c || '', code: v || '' };
+};
+
 export default function PlansPage() {
   const [plans, setPlans] = useState<DespatchPlan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,12 +168,20 @@ export default function PlansPage() {
   const fetchCustomers = async () => {
     try {
       const data = await api.get('/api/plans/customers');
-      if (Array.isArray(data) && data.length > 0) {
-        setCustomersList(data);
-      } else {
-        // Fallback to presets
-        setCustomersList(CUSTOMER_PRESETS.map((p) => ({ customer_name: p.name, vendor_code: p.code })));
+      const map = new Map<string, { customer_name: string; vendor_code?: string }>();
+      // Standard presets first
+      for (const p of CUSTOMER_PRESETS) {
+        map.set(p.name, { customer_name: p.name, vendor_code: p.code });
       }
+      if (Array.isArray(data)) {
+        for (const item of data) {
+          const norm = getNormalizedCustomer(item.customer_name, item.vendor_code);
+          if (norm.name && !map.has(norm.name)) {
+            map.set(norm.name, { customer_name: norm.name, vendor_code: norm.code });
+          }
+        }
+      }
+      setCustomersList(Array.from(map.values()));
     } catch {
       setCustomersList(CUSTOMER_PRESETS.map((p) => ({ customer_name: p.name, vendor_code: p.code })));
     }
@@ -749,16 +838,21 @@ export default function PlansPage() {
   const filteredPlans = useMemo(() => {
     return plans.filter((p) => {
       const q = searchQuery.toLowerCase();
+      const norm = getNormalizedCustomer(p.customer_name, p.vendor_code);
       const matchesSearch =
         p.part_number.toLowerCase().includes(q) ||
         p.status.toLowerCase().includes(q) ||
+        norm.name.toLowerCase().includes(q) ||
+        norm.code.toLowerCase().includes(q) ||
         (p.customer_name && p.customer_name.toLowerCase().includes(q)) ||
         (p.vendor_code && p.vendor_code.toLowerCase().includes(q)) ||
         (p.gate_pass_number && p.gate_pass_number.toLowerCase().includes(q));
 
       const matchesCustomer =
         selectedCustomerFilter === 'all' ||
-        (p.customer_name && p.customer_name.toLowerCase() === selectedCustomerFilter.toLowerCase());
+        norm.name.toLowerCase() === selectedCustomerFilter.toLowerCase() ||
+        (p.customer_name && p.customer_name.toLowerCase() === selectedCustomerFilter.toLowerCase()) ||
+        (p.vendor_code && p.vendor_code.toLowerCase() === selectedCustomerFilter.toLowerCase());
 
       return matchesSearch && matchesCustomer;
     });
@@ -1117,7 +1211,7 @@ export default function PlansPage() {
                   className="bg-transparent text-white font-semibold focus:outline-none cursor-pointer max-w-[150px] sm:max-w-[210px] truncate"
                 >
                   <option value="all" className="bg-slate-800">
-                    All Customers ({plans.length})
+                    All Customers
                   </option>
                   {customersList.map((c) => (
                     <option key={c.customer_name} value={c.customer_name} className="bg-slate-800">
@@ -1226,17 +1320,22 @@ export default function PlansPage() {
                   className="bg-slate-800/70 border border-slate-700/80 rounded-xl p-3.5 space-y-3 hover:border-slate-600 transition-all shadow-md"
                 >
                   {/* Customer Badge on Mobile */}
-                  {plan.customer_name && (
-                    <div className="flex items-center gap-1.5 text-[11px] text-teal-300 font-medium py-1 px-2.5 rounded-lg bg-teal-500/10 border border-teal-500/20">
-                      <span className="text-teal-400 font-bold shrink-0">🏢 Customer:</span>
-                      <span className="font-semibold text-white truncate">{plan.customer_name}</span>
-                      {plan.vendor_code && (
-                        <span className="text-[10px] text-slate-400 font-mono ml-auto shrink-0">
-                          ({plan.vendor_code})
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  {(() => {
+                    const norm = getNormalizedCustomer(plan.customer_name, plan.vendor_code);
+                    const custDisplay = norm.name || plan.customer_name;
+                    const codeDisplay = norm.code || plan.vendor_code;
+                    return custDisplay ? (
+                      <div className="flex items-center gap-1.5 text-[11px] text-teal-300 font-medium py-1 px-2.5 rounded-lg bg-teal-500/10 border border-teal-500/20">
+                        <span className="text-teal-400 font-bold shrink-0">🏢 Customer:</span>
+                        <span className="font-semibold text-white truncate">{custDisplay}</span>
+                        {codeDisplay && (
+                          <span className="text-[10px] text-slate-400 font-mono ml-auto shrink-0">
+                            ({codeDisplay})
+                          </span>
+                        )}
+                      </div>
+                    ) : null;
+                  })()}
 
                   {/* Card Top: SR No, Part Number, Status & Actions */}
                   <div className="flex items-center justify-between gap-2">
@@ -1448,20 +1547,25 @@ export default function PlansPage() {
 
                       {/* Customer / Vendor */}
                       <td className="px-4 py-2.5 whitespace-nowrap">
-                        {plan.customer_name ? (
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-teal-300 text-xs">
-                              {plan.customer_name}
-                            </span>
-                            {plan.vendor_code && (
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                Code: {plan.vendor_code}
+                        {(() => {
+                          const norm = getNormalizedCustomer(plan.customer_name, plan.vendor_code);
+                          const custDisplay = norm.name || plan.customer_name;
+                          const codeDisplay = norm.code || plan.vendor_code;
+                          return custDisplay ? (
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-teal-300 text-xs">
+                                {custDisplay}
                               </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-slate-500 italic text-[11px]">—</span>
-                        )}
+                              {codeDisplay && (
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  Code: {codeDisplay}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-500 italic text-[11px]">—</span>
+                          );
+                        })()}
                       </td>
 
                       {/* Quantity */}
